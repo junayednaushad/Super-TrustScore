@@ -252,3 +252,7 @@ plot_title: HAM10k (ID)
 plot_dir: ../figures/HAM10k/
 ```
 
+Run benchmark:
+```
+python benchmark.py --config ../configs/benchmark/HAM10k/swin_s.yaml
+```
