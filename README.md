@@ -81,8 +81,174 @@ python src/preprocessing/aptos_2019.py
 ```
 
 ## Training
+In order to train a Swin-S model on the HAM10k dataset you need to create a config file at this location: `configs/train/HAM10k/swin_s.yaml`. Example config file:
+```
+project: Super-TrustScore
+dataset: HAM10k
+run_name: swin_s
+seed: 100
+num_classes: 7
+return_filename: False
+data_dir: ../data/HAM10k/
+model_dir: ../models/HAM10k/swin_s/
+
+train_transforms: |
+  T.Compose([
+              T.RandomResizedCrop(size=(224,298), scale=(0.5,1), ratio=(1, 1.5)),
+              T.TrivialAugmentWide(),
+              T.RandomHorizontalFlip(0.33),
+              T.RandomVerticalFlip(0.2),
+              T.ToTensor(),
+              T.Normalize(
+                (0.6523304, 0.62197226, 0.61544853),
+                (0.11362693, 0.16195466, 0.16857147)
+              )
+  ])
+test_transforms: |
+  T.Compose([
+              T.Resize((224,298)),
+              T.ToTensor(),
+              T.Normalize(
+                (0.6523304, 0.62197226, 0.61544853),
+                (0.11362693, 0.16195466, 0.16857147)
+              )
+  ])
+
+pretrained: True
+batch_size: 32
+num_workers: 1
+pin_memory: True
+epochs: 30
+lr: 0.0001
+weight_decay: 0.05
+momentum: null
+```
+
+Then train the model:
+```
+cd src
+python train.py --config ../configs/train/HAM10k/swin_s.yaml
+```
 
 ## Inference
-Save model predictions, softmax probabilities, and embeddings.
+Inference involves saving model predictions, softmax probabilities, and embeddings. Running inference also requires a config file:
+
+```
+dataset: HAM10k
+num_classes: 7
+only_test: False # set to True for shifted-distribution datasets
+
+ckpt_path: ../models/HAM10k/swin_s/model.ckpt
+save_path: ../inference_results/HAM10k/swin_s.npy
+
+MCDropout: True # setting this to True if you want inference results for MCD
+num_inferences: 10 # number of forward passes
+
+data_dir: ../data/HAM10k/
+return_filename: True
+train_transforms: |
+  T.Compose([
+              T.Resize((224,298)),
+              T.ToTensor(),
+              T.Normalize(
+                (0.6523304, 0.62197226, 0.61544853),
+                (0.11362693, 0.16195466, 0.16857147)
+              )
+  ])
+test_transforms: |
+  T.Compose([
+              T.Resize((224,298)),
+              T.ToTensor(),
+              T.Normalize(
+                (0.6523304, 0.62197226, 0.61544853),
+                (0.11362693, 0.16195466, 0.16857147)
+              )
+  ])
+batch_size: 32
+num_workers: 1
+pin_memory: True
+```
+
+Run inference:
+
+```
+python inference.py --config ../configs/inference/HAM10k/swin_s.yaml
+```
 
 ## Benchmark Confidence Scoring Functions
+Calculate AURC and Risk@50 for different confidence scoring functions. Example config file:
+
+```
+dataset: HAM10k
+SD: False
+iid_inference_results_dir: ../inference_results/HAM10k # directory containing inference results
+iid_inference_files: # list of files containing inference results (if multiple files provided then metrics will be averaged over all files)
+  - swin_s.npy
+
+confidence_scoring_functions: # List of CSFs to benchmark
+  - Softmax
+  - MCDropout
+  - DeepEnsemble
+  - ConfidNet
+  - TrustScore
+  - Mahalanobis
+  - Local
+  - Global
+  - Super-TrustScore
+
+get_scores: # Each boolean corresponds to the CSF in the previous list (same order) 
+  - True # If True calculate confidence scores, if False then inference file should already contain confidence scores to be loaded
+  - True
+  - True
+  - True
+  - True
+  - True
+  - True
+  - True
+  - True
+
+# Classification Performance
+get_classification_performance: True
+clf_metrics:
+  - Balanced Accuracy
+  - Accuracy
+
+
+# Embedding quality
+get_clustering_metrics: True
+clustering_reduce_dim: True
+clustering_n_components: 0.9
+clustering_norm: True
+
+# TrustScore hyperparameters
+ts_reduce_dim: True
+ts_n_components: 0.9
+ts_norm: True
+ts_filtering: none
+ts_num_workers: 4
+
+# Mahalanobis hyperparameters
+mahal_norm: True
+mahal_reduce_dim: True
+mahal_n_components: 0.9
+
+# Super-TrustScore hyperparameters
+knn_reduce_dim: True
+knn_n_components: 0.9
+knn_norm: True
+knn_filtering: False
+local_conf: True
+global_conf: True
+min_k: 1
+max_k: 20
+k_step: 1
+N_samples: 1014
+eps: 0
+
+# plot risk coverage plot
+plot_rc: True
+coverage: 0.5
+plot_title: HAM10k (ID)
+plot_dir: ../figures/HAM10k/
+```
+
