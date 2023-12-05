@@ -186,7 +186,7 @@ def get_misclassification_results(results_df, csf):
     fpr85 = fpr_at_tpr(df["correct"], df[csf], 0.85)
     fpr95 = fpr_at_tpr(df["correct"], df[csf], 0.95)
     aupr = average_precision_score(df["incorrect"], -1 * df[csf])
-    return auc, fpr85, fpr95, aupr
+    return [auc, fpr85, fpr95, aupr]
 
 
 def get_per_class_misclassification_results(df, csf):

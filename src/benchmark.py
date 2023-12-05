@@ -1,17 +1,20 @@
 import argparse
 import yaml
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from confidence_scoring_functions.TrustScore import get_trustscores
 from confidence_scoring_functions.Mahalanobis import get_mahalanobis_scores
 from confidence_scoring_functions.SuperTrustScore import STS
+from tabulate import tabulate
 from utils import (
     get_softmax_scores,
     get_mcd_scores,
     get_ensemble_scores,
     RC_curve,
     get_classification_performance,
+    get_misclassification_results,
     get_embedding_quality,
 )
 
@@ -30,30 +33,40 @@ if __name__ == "__main__":
     with open(args.config) as file:
         config = yaml.safe_load(file)
 
+    if (
+        "DeepEnsemble" in config["confidence_scoring_functions"]
+        and len(config["iid_inference_files"]) < 2
+    ):
+        print(
+            "Must have at least 2 inference result files in order to benchmark DeepEnsemble"
+        )
+        sys.exit()
+
     iid_result_paths = [
         os.path.join(config["iid_inference_results_dir"], f)
         for f in config["iid_inference_files"]
     ]
-    if config["OOD"]:
-        ood_result_paths = [
-            os.path.join(config["ood_inference_results_dir"], f)
-            for f in config["ood_inference_files"]
+    if config["SD"]:
+        sd_result_paths = [
+            os.path.join(config["sd_inference_results_dir"], f)
+            for f in config["sd_inference_files"]
         ]
         assert len(iid_result_paths) == len(
-            ood_result_paths
-        ), "Each OOD inference file should have a corresponding IID inference file"
+            sd_result_paths
+        ), "Each SD inference file should have a corresponding IID inference file"
 
     csf_metrics = []
     clf_scores = []
     s_scores = []
     risk_at_coverage = []
+    misclf_metrics_df = []
     for idx, iid_result_path in enumerate(iid_result_paths):
         df = np.load(iid_result_path, allow_pickle=True).item()
         df_train = df["train"]
         df_val = df["val"]
-        if config["OOD"]:
-            df_ood = np.load(ood_result_paths[idx], allow_pickle=True).item()
-            df_test = df_ood["test"]
+        if config["SD"]:
+            df_sd = np.load(sd_result_paths[idx], allow_pickle=True).item()
+            df_test = df_sd["test"]
         else:
             df_test = df["test"]
         df_test_residuals = (df_test["label"] != df_test["model_pred"]).values.astype(
@@ -77,6 +90,7 @@ if __name__ == "__main__":
 
         csfs = []
         errors = []
+        misclf_metrics = []
         plt.figure(figsize=(10, 4))
         for j, csf in enumerate(config["confidence_scoring_functions"]):
             if csf == "Softmax" and config["get_scores"][j]:
@@ -85,16 +99,16 @@ if __name__ == "__main__":
                 df_test[csf] = get_mcd_scores(df_test)
             elif csf == "DeepEnsemble" and config["get_scores"][j]:
                 if idx == 0:
-                    if config["OOD"]:
-                        idx_remove = len(ood_result_paths) - 1
+                    if config["SD"]:
+                        idx_remove = len(sd_result_paths) - 1
                     else:
                         idx_remove = len(iid_result_paths) - 1
                 else:
                     idx_remove = idx - 1
-                if config["OOD"]:
+                if config["SD"]:
                     df_paths = [
-                        ood_result_paths[i]
-                        for i in np.delete(np.arange(len(ood_result_paths)), idx_remove)
+                        sd_result_paths[i]
+                        for i in np.delete(np.arange(len(sd_result_paths)), idx_remove)
                     ]
                 else:
                     df_paths = [
@@ -192,9 +206,11 @@ if __name__ == "__main__":
             if config["plot_rc"]:
                 plt.plot(coverages, risks, label=csf)
 
+            misclf_metrics.append(get_misclassification_results(df_test, csf))
+
         if True in config["get_scores"]:
-            if config["OOD"]:
-                np.save(ood_result_paths[idx], df_ood)
+            if config["SD"]:
+                np.save(sd_result_paths[idx], df_sd)
             else:
                 np.save(iid_result_path, df)
 
@@ -211,6 +227,8 @@ if __name__ == "__main__":
             plt.savefig(plot_path)
             plt.close()
 
+        misclf_metrics_df.append(np.vstack(misclf_metrics))
+
     if config["get_classification_performance"]:
         print("\nClassification Performance")
         clf_scores = np.mean(clf_scores, axis=0)
@@ -225,12 +243,24 @@ if __name__ == "__main__":
             )
         )
 
-    print("\nFailure Detection Results")
-    results = np.stack(csf_metrics, axis=0).mean(axis=0)
-    for result, csf in zip(results, config["confidence_scoring_functions"]):
-        print(f"{csf}: {result:.3f}")
-
-    print("\nError at Coverage = {:.3f}".format(config["coverage"]))
-    risk_at_coverage = np.stack(risk_at_coverage, axis=0).mean(axis=0)
-    for risk, csf in zip(risk_at_coverage, config["confidence_scoring_functions"]):
-        print(f"{csf}: {risk:.3f}")
+    print("\nFailure Detection Metrics\n")
+    aurcs = np.stack(csf_metrics, axis=0).mean(axis=0).reshape(-1, 1)
+    risk_at_coverage = np.stack(risk_at_coverage, axis=0).mean(axis=0).reshape(-1, 1)
+    failure_det_results = np.stack(misclf_metrics_df, axis=0).mean(axis=0)
+    table = np.hstack([aurcs, risk_at_coverage, failure_det_results])
+    print(
+        tabulate(
+            table,
+            headers=[
+                "CSF",
+                "AURC",
+                f"Risk@{config['coverage']}",
+                "AUROC",
+                "FPR@85TPR",
+                "FPR@95TPR",
+                "AUPR_misclf",
+            ],
+            showindex=config["confidence_scoring_functions"],
+            floatfmt=".3f",
+        )
+    )

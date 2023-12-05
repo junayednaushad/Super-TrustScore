@@ -367,7 +367,8 @@ class MessidorDataModule(pl.LightningDataModule):
         df = pd.read_csv(os.path.join(self.data_dir, "messidor_data.csv"))
         df.dropna(inplace=True)
         print("Number of samples:", len(df))
-
+        if self.num_classes == 2:
+            df["adjudicated_dr_grade"] = (df["adjudicated_dr_grade"] > 1).astype(int)
         test_transforms = eval(self.config["test_transforms"])
         self.test_dataset = MessidorDataset(
             df, image_dir, test_transforms, self.config["return_filename"]
