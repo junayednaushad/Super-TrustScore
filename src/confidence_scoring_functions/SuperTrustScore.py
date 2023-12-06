@@ -97,12 +97,12 @@ class STS:
 
         self.train_embs = np.vstack(self.df_train["embedding"].values)
         if self.reduce_dim:
-            # print('Reducing embedding dimensions')
-            # print('Original embedding size:', self.train_embs[0].shape[0])
+            print("Reducing embedding dimensions")
+            print("Original embedding size:", self.train_embs[0].shape[0])
             self.pca = PCA(n_components=self.n_components, random_state=0)
             self.pca.fit(self.train_embs)
             self.train_embs = self.pca.transform(self.train_embs)
-            # print('Reduced embedding size:', self.train_embs[0].shape[0])
+            print("Reduced embedding size:", self.train_embs[0].shape[0])
 
         if self.norm:
             self.train_embs = normalize(self.train_embs, norm="l2", axis=1)
@@ -305,7 +305,8 @@ class STS:
         global_confs : numpy.ndarray
             Array containing global confidence scores
         """
-        distances, indexes = self.get_nn_dists(df_test, self.k)
+        if self.local_conf:
+            distances, indexes = self.get_nn_dists(df_test, self.k)
         test_preds = df_test["model_pred"].values
         if self.global_conf:
             mahal_scores = self.mahalanobis.predict(df_test)

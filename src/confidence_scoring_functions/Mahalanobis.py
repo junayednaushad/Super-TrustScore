@@ -53,18 +53,13 @@ class Mahalanobis:
     def _get_centroids(self, embs):
         centroids = {}
         for label in np.sort(np.unique(self.labels)):
-            centroids[label] = np.mean(
-                embs[np.argwhere(self.labels == label).squeeze()], axis=0
-            )
+            centroids[label] = np.mean(embs[self.labels == label], axis=0)
         return centroids
 
     def _get_covariances(self, embs):
         covariances = {}
         for label in np.sort(np.unique(self.labels)):
-            covariances[label] = np.cov(
-                embs[np.argwhere(self.labels == label).squeeze()], rowvar=False
-            )
-
+            covariances[label] = np.cov(embs[self.labels == label], rowvar=False)
             if not np.all(np.linalg.eigvals(covariances[label]) > 0):
                 covariances[label] += np.eye(covariances[label].shape[0]) * 1e-15
                 assert np.all(

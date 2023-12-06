@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 from confidence_scoring_functions.TrustScore import get_trustscores
 from confidence_scoring_functions.Mahalanobis import get_mahalanobis_scores
 from confidence_scoring_functions.SuperTrustScore import STS
+from confidence_scoring_functions.Euclidean import get_euclidean_scores
 from tabulate import tabulate
 from utils import (
     get_softmax_scores,
@@ -139,14 +140,22 @@ if __name__ == "__main__":
                     reduce_dim=config["mahal_reduce_dim"],
                     n_components=config["mahal_n_components"],
                 )
+            elif csf == "Euclidean" and config["get_scores"][j]:
+                df_test[csf] = get_euclidean_scores(
+                    df_train,
+                    df_test,
+                    norm=config["euc_norm"],
+                    reduce_dim=config["euc_reduce_dim"],
+                    n_components=config["euc_n_components"],
+                )
             elif csf == "ConfidNet" and config["get_scores"][j]:
                 df_test[csf] = df_test["TCP_hat"]
             elif csf == "Local" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
-                    reduce_dim=config["knn_reduce_dim"],
-                    n_components=config["knn_n_components"],
-                    norm=config["knn_norm"],
+                    reduce_dim=config["sts_reduce_dim"],
+                    n_components=config["sts_n_components"],
+                    norm=config["sts_norm"],
                     filter_training=config["knn_filtering"],
                     local_conf=True,
                     global_conf=False,
@@ -164,25 +173,24 @@ if __name__ == "__main__":
             elif csf == "Global" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
-                    reduce_dim=config["knn_reduce_dim"],
-                    n_components=config["knn_n_components"],
-                    norm=config["knn_norm"],
+                    reduce_dim=config["sts_reduce_dim"],
+                    n_components=config["sts_n_components"],
+                    norm=config["sts_norm"],
                     filter_training=config["knn_filtering"],
                     local_conf=False,
                     global_conf=True,
                 )
-                sts.set_k(df_val, 1, 1, 1, config["N_samples"], config["eps"])
                 global_confs = sts.compute_conf(df_test)
                 df_test[csf] = global_confs
             elif csf == "Super-TrustScore" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
-                    reduce_dim=config["knn_reduce_dim"],
-                    n_components=config["knn_n_components"],
-                    norm=config["knn_norm"],
+                    reduce_dim=config["sts_reduce_dim"],
+                    n_components=config["sts_n_components"],
+                    norm=config["sts_norm"],
                     filter_training=config["knn_filtering"],
-                    local_conf=config["local_conf"],
-                    global_conf=config["global_conf"],
+                    local_conf=True,
+                    global_conf=True,
                 )
                 sts.set_k(
                     df_val,
