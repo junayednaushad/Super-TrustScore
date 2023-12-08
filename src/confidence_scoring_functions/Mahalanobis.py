@@ -18,12 +18,12 @@ def get_mahalanobis_scores(df_train, df_test, norm, reduce_dim, n_components=Non
 
 
 class Mahalanobis:
-    def __init__(self, norm, reduce_dim, n_componenets=None):
+    def __init__(self, distance_metric, reduce_dim, n_componenets=None):
         self.reduce_dim = reduce_dim
         self.n_components = n_componenets
         if self.reduce_dim:
             self.pca = PCA(n_components=self.n_components, random_state=0)
-        self.norm = norm
+        self.distance_metric = distance_metric
 
     def fit(self, df_train):
         self.labels = df_train["label"].values
@@ -32,7 +32,7 @@ class Mahalanobis:
         if self.reduce_dim:
             self.pca.fit(train_embs)
             train_embs = self.pca.transform(train_embs)
-        if self.norm:
+        if self.distance_metric == "cosine":
             train_embs = normalize(train_embs, norm="l2", axis=1)
 
         self.centroids = self._get_centroids(train_embs)
@@ -42,7 +42,7 @@ class Mahalanobis:
         test_embs = np.vstack(df_test["embedding"].values)
         if self.reduce_dim:
             test_embs = self.pca.transform(test_embs)
-        if self.norm:
+        if self.distance_metric == "cosine":
             test_embs = normalize(test_embs, norm="l2", axis=1)
 
         preds = []

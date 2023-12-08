@@ -1,7 +1,6 @@
 import numpy as np
-from sklearn.preprocessing import normalize
 from sklearn.decomposition import PCA
-from sklearn.neighbors import KDTree
+from sklearn.neighbors import NearestNeighbors
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -21,7 +20,8 @@ def get_sts_scores(
     df_test,
     reduce_dim,
     n_components,
-    norm,
+    local_distance_metric,
+    global_distance_metric,
     filter_training,
     local_conf,
     global_conf,
@@ -35,7 +35,8 @@ def get_sts_scores(
         df_train=df_train,
         reduce_dim=reduce_dim,
         n_components=n_components,
-        norm=norm,
+        local_distance_metric=local_distance_metric,
+        global_distance_metric=global_distance_metric,
         filter_training=filter_training,
         local_conf=local_conf,
         global_conf=global_conf,
@@ -55,7 +56,8 @@ class STS:
         k=None,
         reduce_dim=True,
         n_components=0.9,
-        norm=True,
+        local_distance_metric="l2",
+        global_distance_metric="l2",
         filter_training=True,
         local_conf=True,
         global_conf=True,
@@ -90,7 +92,8 @@ class STS:
         self.classes = np.sort(np.unique(self.df_train["label"].values))
         self.reduce_dim = reduce_dim
         self.n_components = n_components
-        self.norm = norm
+        self.local_distance_metric = local_distance_metric
+        self.global_distance_metric = global_distance_metric
         self.filter = filter_training
         self.local_conf = local_conf
         self.global_conf = global_conf
@@ -103,9 +106,6 @@ class STS:
             self.pca.fit(self.train_embs)
             self.train_embs = self.pca.transform(self.train_embs)
             print("Reduced embedding size:", self.train_embs[0].shape[0])
-
-        if self.norm:
-            self.train_embs = normalize(self.train_embs, norm="l2", axis=1)
 
         if self.filter:
             print("Removing outlier training examples")
@@ -138,7 +138,9 @@ class STS:
             self.train_embs = self.train_embs[unfiltered_idxs]
 
         if self.global_conf:
-            self.mahalanobis = Mahalanobis(norm, reduce_dim, n_components)
+            self.mahalanobis = Mahalanobis(
+                global_distance_metric, reduce_dim, n_components
+            )
             self.mahalanobis.fit(self.df_train)
 
     def set_k(self, df_val, min_k, max_k, k_step, N_samples, eps):
@@ -273,16 +275,16 @@ class STS:
         test_embs = np.vstack(df_test["embedding"].values)
         if self.reduce_dim:
             test_embs = self.pca.transform(test_embs)
-        if self.norm:
-            test_embs = normalize(test_embs, norm="l2", axis=1)
 
         distances = {}
         indexes = {}
         for label in self.classes:
             df_label = self.df_train.loc[self.df_train["label"] == label]
             og_idx = df_label.index.values
-            tree_label = KDTree(self.train_embs[og_idx], leaf_size=100, metric="l2")
-            dist, new_idx = tree_label.query(test_embs, k=k)
+            nbrs = NearestNeighbors(
+                n_neighbors=k, algorithm="auto", metric=self.local_distance_metric
+            ).fit(self.train_embs[og_idx])
+            dist, new_idx = nbrs.kneighbors(test_embs)
             idx = og_idx[new_idx.flatten()]
             idx = idx.reshape(new_idx.shape)
             distances[label] = dist
