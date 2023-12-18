@@ -36,6 +36,18 @@ def get_HAM10k_class_weights(config):
     return class_weights
 
 
+def get_EyePACS_class_weights(exp_config):
+    """Returns class weights for EyePACS, giving higher weight to classes with fewer data points"""
+
+    data_dir = exp_config["data_dir"]
+    train_df = pd.read_csv(os.path.join(data_dir, "trainLabels.csv"))
+    class_weights = (
+        train_df["level"].value_counts().max()
+        / train_df["level"].value_counts().sort_index()
+    ).values
+    return torch.tensor(class_weights).float()
+
+
 def add_column_of_label_names(df, config):
     if (
         config["dataset"] == "HAM10k"

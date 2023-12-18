@@ -41,24 +41,37 @@ class LitSwin(pl.LightningModule):
         else:
             self.model = swin_s()
         # change num of outputs
-        self.model.head = torch.nn.Linear(
-            in_features=768, out_features=self.num_classes, bias=True
-        )
+        if self.num_classes > 2:
+            self.model.head = torch.nn.Linear(
+                in_features=768, out_features=self.num_classes, bias=True
+            )
+        else:
+            self.model.head = torch.nn.Linear(
+                in_features=768, out_features=1, bias=True
+            )
 
         # loss and metrics
-        self.loss_fn = nn.CrossEntropyLoss(weight=self.class_weights)
+        if self.num_classes > 2:
+            self.loss_fn = nn.CrossEntropyLoss(weight=self.class_weights)
+        else:
+            self.loss_fn = nn.BCEWithLogitsLoss()
         if self.dataset == "HAM10k":
             self.val_metric = torchmetrics.Accuracy(
                 task="multiclass", num_classes=self.num_classes, average="macro"
             )
-        else:
+        elif self.dataset == "EyePACS" and self.num_classes > 2:
             self.val_metric = torchmetrics.CohenKappa(
                 task="multiclass", num_classes=self.num_classes, weights="quadratic"
             )
+        else:
+            self.val_metric = torchmetrics.AUROC(task="binary")
 
-        self.accuracy = torchmetrics.Accuracy(
-            task="multiclass", num_classes=self.num_classes
-        )
+        if self.num_classes > 2:
+            self.accuracy = torchmetrics.Accuracy(
+                task="multiclass", num_classes=self.num_classes
+            )
+        else:
+            self.accuracy = torchmetrics.Accuracy(task="binary")
 
         # save predictions and targets to compute metrics at end of epoch
         self.training_step_preds = []
@@ -74,9 +87,18 @@ class LitSwin(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
+        if self.num_classes == 2:
+            logits = torch.squeeze(logits)
+            y = y.float()
         loss = self.loss_fn(logits, y)
 
-        self.training_step_preds.extend(logits.argmax(dim=1).detach().cpu())
+        if self.num_classes > 2:
+            self.training_step_preds.extend(logits.argmax(dim=1).detach().cpu())
+        else:
+            # preds are acutally probs
+            self.training_step_preds.extend(
+                nn.functional.sigmoid(logits).detach().cpu()
+            )
         self.training_step_targets.extend(y.cpu())
         self.log(
             "train_loss",
@@ -90,9 +112,17 @@ class LitSwin(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
+        if self.num_classes == 2:
+            logits = torch.squeeze(logits)
+            y = y.float()
         loss = self.loss_fn(logits, y)
 
-        self.validation_step_preds.extend(logits.argmax(dim=1).cpu())
+        if self.num_classes > 2:
+            self.validation_step_preds.extend(logits.argmax(dim=1).cpu())
+        else:
+            self.validation_step_preds.extend(
+                nn.functional.sigmoid(logits).detach().cpu()
+            )
         self.validation_step_targets.extend(y.cpu())
         self.log(
             "val_loss",
@@ -106,8 +136,14 @@ class LitSwin(pl.LightningModule):
     def test_step(self, batch, batch_idx):
         x, y = batch
         logits = self(x)
-        preds = logits.argmax(dim=1)
-        val_metric = self.val_metric(preds, y)
+        if self.num_classes == 2:
+            logits = torch.squeeze(logits)
+            probs = nn.functional.sigmoid(logits)
+            preds = torch.round(probs)
+            val_metric = self.val_metric(probs, y)
+        else:
+            preds = logits.argmax(dim=1)
+            val_metric = self.val_metric(preds, y)
         accuracy = self.accuracy(preds, y)
 
         if self.dataset == "HAM10k":
@@ -117,9 +153,16 @@ class LitSwin(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=True,
             )
-        else:
+        elif self.dataset == "EyePACS" and self.num_classes > 2:
             self.log_dict(
                 {"test_kappa": val_metric, "accuracy": accuracy},
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+        else:
+            self.log_dict(
+                {"test_AUROC": val_metric, "accuracy": accuracy},
                 on_step=False,
                 on_epoch=True,
                 prog_bar=True,
@@ -133,8 +176,12 @@ class LitSwin(pl.LightningModule):
             self.eval()
         with torch.no_grad():
             logits = self(x)
-            probs = nn.functional.softmax(logits, dim=1).cpu().numpy()
-            preds = list(probs.argmax(axis=1))
+            if self.num_classes == 2:
+                probs = nn.functional.sigmoid(torch.squeeze(logits))
+                preds = torch.round(probs)
+            else:
+                probs = nn.functional.softmax(logits, dim=1).cpu().numpy()
+                preds = list(probs.argmax(axis=1))
             embs = features["embedding"].squeeze().cpu().numpy()
         return embs, preds, probs
 
@@ -152,9 +199,17 @@ class LitSwin(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=True,
             )
-        else:
+        elif self.dataset == "EyePACS" and self.num_classes > 2:
             self.log(
                 "train_kappa",
+                val_metric,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+        else:
+            self.log(
+                "train_AUROC",
                 val_metric,
                 on_step=False,
                 on_epoch=True,
@@ -177,9 +232,17 @@ class LitSwin(pl.LightningModule):
                 on_epoch=True,
                 prog_bar=True,
             )
-        else:
+        elif self.dataset == "EyePACS" and self.num_classes > 2:
             self.log(
                 "val_kappa",
+                val_metric,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
+        else:
+            self.log(
+                "val_AUROC",
                 val_metric,
                 on_step=False,
                 on_epoch=True,
@@ -209,11 +272,17 @@ class LitSwin(pl.LightningModule):
                 "lr_scheduler": scheduler,
                 "monitor": "val_balanced_accuracy",
             }
-        else:
+        elif self.dataset == "EyePACS" and self.num_classes > 2:
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": scheduler,
                 "monitor": "val_kappa",
+            }
+        else:
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": scheduler,
+                "monitor": "val_AUROC",
             }
 
 

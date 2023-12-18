@@ -64,7 +64,7 @@ if __name__ == "__main__":
             ],
             **trainer_kwargs,
         )
-    elif config["dataset"] == "EyePACS":
+    elif config["dataset"] == "EyePACS" and config["num_classes"] > 2:
         data_module = EyePACSDataModule(config)
         class_weights = get_EyePACS_class_weights(config)
         # class_weights = torch.ones(config["num_classes"]).float()
@@ -84,6 +84,31 @@ if __name__ == "__main__":
                     dirpath=config["model_dir"],
                     filename="{epoch}-{val_kappa:.2f}",
                     monitor="val_kappa",
+                    mode="max",
+                    save_last=True,
+                ),
+            ],
+            **trainer_kwargs,
+        )
+    elif config["dataset"] == "EyePACS" and config["num_classes"] == 2:
+        data_module = EyePACSDataModule(config)
+        class_weights = get_EyePACS_class_weights(config)
+        trainer = pl.Trainer(
+            logger=logger,
+            min_epochs=1,
+            max_epochs=config["epochs"],
+            callbacks=[
+                LearningRateMonitor(),
+                EarlyStopping(
+                    monitor="val_AUROC",
+                    mode="max",
+                    min_delta=0.01,
+                    patience=5,
+                ),
+                ModelCheckpoint(
+                    dirpath=config["model_dir"],
+                    filename="{epoch}-{val_AUROC:.2f}",
+                    monitor="val_AUROC",
                     mode="max",
                     save_last=True,
                 ),

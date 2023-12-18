@@ -6,6 +6,7 @@ models/
 shell_scripts/
 wandb/
 lightning_logs/
+slurm_outputs/
 figures.ipynb
 
 # Byte-compiled / optimized / DLL files
