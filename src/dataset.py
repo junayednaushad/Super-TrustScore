@@ -43,7 +43,7 @@ class HAM10kDataModule(pl.LightningDataModule):
         self.num_workers = config["num_workers"]
         self.pin_memory = config["pin_memory"]
 
-    def setup(self):
+    def setup(self, stage=None):
         print("Creating HAM10k datasets")
         train_df = pd.read_csv(os.path.join(self.data_dir, "train_df.csv"))
         df_test = pd.read_csv(os.path.join(self.data_dir, "test_df.csv"))
@@ -424,6 +424,8 @@ class APTOS_2019_DataModule(pl.LightningDataModule):
         print("Creating APTOS 2019 datasets")
         image_dir = os.path.join(self.data_dir, "preprocessed_train_images")
         df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+        if self.num_classes == 2:
+            df["diagnosis"] = (df["diagnosis"] > 1).astype(int)
         print("Number of samples:", len(df))
 
         test_transforms = eval(self.config["test_transforms"])

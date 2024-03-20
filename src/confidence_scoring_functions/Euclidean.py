@@ -7,7 +7,7 @@ def get_euclidean_scores(df_train, df_test, norm, reduce_dim, n_components=None)
     euclidean = Euclidean(norm, reduce_dim, n_components)
     euclidean.fit(df_train)
     distances = euclidean.predict(df_test)
-    model_preds = df_test["model_pred"].values
+    model_preds = df_test["model_pred"].values.astype(int)
     scores = []
     for dist, pred in zip(distances, model_preds):
         dist = dist.flatten()

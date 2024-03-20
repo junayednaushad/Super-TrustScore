@@ -205,7 +205,7 @@ class STS:
             _, df_val = train_test_split(
                 df_val, test_size=N_samples, random_state=0, stratify=df_val["label"]
             )
-        val_preds = df_val["model_pred"].values
+        val_preds = df_val["model_pred"].values.astype(int)
         df_val_residuals = (df_val["label"] != df_val["model_pred"]).values.astype(int)
         distances, indexes = self.get_nn_dists(df_val, max_k)
 
@@ -230,15 +230,23 @@ class STS:
                     m_pred = mahal_scores[i].flatten()[pred]
                     m_other = np.delete(mahal_scores[i].flatten(), pred).min()
                     global_confs.append(m_other / m_pred)
-                    # global_confs.append(-1*m_pred)
+                    # global_confs.append(-1 * m_pred)
                     # global_confs.append(1/m_pred)
 
             if self.local_conf and self.global_conf:
                 local_confs = np.array(local_confs)
+                # local_stats = [np.min(local_confs), np.max(local_confs)]
+                # local_confs = (local_confs - local_stats[0]) / (
+                #     local_stats[1] - local_stats[0]
+                # )
                 local_stats = [np.mean(local_confs), np.std(local_confs)]
                 local_confs = (local_confs - local_stats[0]) / local_stats[1]
 
                 global_confs = np.array(global_confs)
+                # global_stats = [np.min(global_confs), np.max(global_confs)]
+                # global_confs = (global_confs - global_stats[0]) / (
+                #     global_stats[1] - global_stats[0]
+                # )
                 global_stats = [np.mean(global_confs), np.std(global_confs)]
                 global_confs = (global_confs - global_stats[0]) / global_stats[1]
 
@@ -309,7 +317,7 @@ class STS:
         """
         if self.local_conf:
             distances, indexes = self.get_nn_dists(df_test, self.k)
-        test_preds = df_test["model_pred"].values
+        test_preds = df_test["model_pred"].values.astype(int)
         if self.global_conf:
             mahal_scores = self.mahalanobis.predict(df_test)
 
@@ -327,13 +335,19 @@ class STS:
                 m_pred = mahal_scores[i].flatten()[pred]
                 m_other = np.delete(mahal_scores[i].flatten(), pred).min()
                 global_confs.append(m_other / m_pred)
-                # global_confs.append(-1*m_pred)
+                # global_confs.append(-1 * m_pred)
                 # global_confs.append(1/m_pred)
 
         if self.local_conf and self.global_conf:
             local_confs = np.array(local_confs)
+            # local_confs = (local_confs - self.local_stats[0]) / (
+            #     self.local_stats[1] - self.local_stats[0]
+            # )
             local_confs = (local_confs - self.local_stats[0]) / self.local_stats[1]
             global_confs = np.array(global_confs)
+            # global_confs = (global_confs - self.global_stats[0]) / (
+            #     self.global_stats[1] - self.global_stats[0]
+            # )
             global_confs = (global_confs - self.global_stats[0]) / self.global_stats[1]
             return local_confs, global_confs
         elif self.local_conf:

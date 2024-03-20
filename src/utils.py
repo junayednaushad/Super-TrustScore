@@ -102,23 +102,75 @@ def get_softmax_scores(df):
         probs = np.vstack(probs)
         return probs.max(axis=1)
     else:
-        return df["model_conf"].values
+
+        def model_conf(row):
+            if row["model_pred"] == 0:
+                return 1 - row["probs"]
+            else:
+                return row["probs"]
+
+        return df.apply(model_conf, axis=1).values
+
+
+# def get_mcd_scores(df):
+#     if len(df["label"].unique()) > 2:
+#         mcd_probs = df["mcd_probs"].values
+#         mcd_probs = np.vstack(mcd_probs)
+#         model_preds = df["model_pred"].values
+#         return mcd_probs[np.arange(len(mcd_probs)), model_preds]
+#     else:
+
+#         def model_conf(row):
+#             if row["model_pred"] == 0:
+#                 return 1 - row["mcd_probs"]
+#             else:
+#                 return row["mcd_probs"]
+
+#         return df.apply(model_conf, axis=1).values
 
 
 def get_mcd_scores(df):
-    mcd_probs = df["mcd_probs"].values
-    mcd_probs = np.vstack(mcd_probs)
-    model_preds = df["model_pred"].values
-    return mcd_probs[np.arange(len(mcd_probs)), model_preds]
+    if len(df["label"].unique()) > 2:
+        mcd_probs = df["mcd_probs"].values
+        mcd_probs = np.vstack(mcd_probs)
+        mcd_preds = np.argmax(mcd_probs, axis=1)
+        mcd_confs = np.max(mcd_probs, axis=1)
+    else:
+        mcd_preds = np.round(df["mcd_probs"])
+        mcd_confs = (mcd_preds * df["mcd_probs"]) + (
+            (1 - mcd_preds) * (1 - df["mcd_probs"])
+        )
+    return mcd_preds, mcd_confs
 
 
-def get_ensemble_scores(dfs):
+# def get_ensemble_scores(dfs, model_preds):
+#     probs = []
+#     for df in dfs:
+#         probs.append(np.vstack(df["probs"].values))
+#     probs = np.stack(probs, axis=0).mean(axis=0)
+#     return probs[np.arange(len(probs)), model_preds]
+
+
+def get_ensemble_scores(dfs, is_binary):
     probs = []
-    for df in dfs:
-        probs.append(np.vstack(df["probs"].values))
-    probs = np.stack(probs, axis=0).mean(axis=0)
-    model_preds = df["model_pred"].values
-    return probs[np.arange(len(probs)), model_preds]
+    if is_binary:
+        for df in dfs:
+            probs.append(df["probs"].values)
+        probs = np.stack(probs, axis=0).mean(axis=0)
+        model_preds = np.round(probs)
+        confs = []
+        for prob, pred in zip(probs, model_preds):
+            if pred == 1:
+                confs.append(prob)
+            else:
+                confs.append(1 - prob)
+    else:
+        for df in dfs:
+            probs.append(np.vstack(df["probs"].values))
+        probs = np.stack(probs, axis=0).mean(axis=0)
+        model_preds = np.argmax(probs, axis=1)
+        confs = probs[np.arange(len(probs)), model_preds]
+    return model_preds, confs
 
 
 def get_classification_performance(df, clf_metrics):

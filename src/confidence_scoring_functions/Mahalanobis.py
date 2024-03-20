@@ -8,7 +8,7 @@ def get_mahalanobis_scores(df_train, df_test, norm, reduce_dim, n_components=Non
     mahalanobis = Mahalanobis(norm, reduce_dim, n_components)
     mahalanobis.fit(df_train)
     distances = mahalanobis.predict(df_test)
-    model_preds = df_test["model_pred"].values
+    model_preds = df_test["model_pred"].values.astype(int)
     scores = []
     for dist, pred in zip(distances, model_preds):
         dist = dist.flatten()
@@ -61,7 +61,7 @@ class Mahalanobis:
         for label in np.sort(np.unique(self.labels)):
             covariances[label] = np.cov(embs[self.labels == label], rowvar=False)
             if not np.all(np.linalg.eigvals(covariances[label]) > 0):
-                covariances[label] += np.eye(covariances[label].shape[0]) * 1e-15
+                covariances[label] += np.eye(covariances[label].shape[0]) * 1e-13
                 assert np.all(
                     np.linalg.eigvals(covariances[label]) > 0
                 ), "Covariance matrix has numerical error so need to add larger positive value"

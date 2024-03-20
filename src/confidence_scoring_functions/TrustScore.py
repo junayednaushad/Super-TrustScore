@@ -12,7 +12,7 @@ def get_trustscores(
     train_features = np.vstack(df_train["embedding"].values)
     train_targets = df_train["label"].values
     test_features = np.vstack(df_test["embedding"].values)
-    test_predictions = df_test["model_pred"].values
+    test_predictions = df_test["model_pred"].values.astype(int)
 
     if reduce_dim:
         pca = PCA(n_components, random_state=0)

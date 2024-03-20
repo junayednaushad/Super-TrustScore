@@ -7,7 +7,7 @@ from lightning.pytorch.callbacks import (
     LearningRateMonitor,
 )
 from dataset import HAM10kDataModule, EyePACSDataModule
-from model import LitSwin
+from model import LitSwin, LitResNet
 from utils import get_HAM10k_class_weights, get_EyePACS_class_weights
 import sys
 
@@ -62,6 +62,9 @@ if __name__ == "__main__":
                     mode="max",
                 ),
             ],
+            # limit_train_batches=10,
+            # limit_val_batches=5,
+            # limit_test_batches=10,
             **trainer_kwargs,
         )
     elif config["dataset"] == "EyePACS" and config["num_classes"] > 2:
@@ -120,15 +123,26 @@ if __name__ == "__main__":
         sys.exit()
 
     # define model
-    model = LitSwin(
-        dataset=config["dataset"],
-        num_classes=config["num_classes"],
-        pretrained=config["pretrained"],
-        class_weights=class_weights,
-        learning_rate=config["lr"],
-        weight_decay=config["weight_decay"],
-        momentum=config["momentum"],
-    )
+    if config["model"] == "Swin":
+        model = LitSwin(
+            dataset=config["dataset"],
+            num_classes=config["num_classes"],
+            pretrained=config["pretrained"],
+            class_weights=class_weights,
+            learning_rate=config["lr"],
+            weight_decay=config["weight_decay"],
+            momentum=config["momentum"],
+        )
+    else:
+        model = LitResNet(
+            dataset=config["dataset"],
+            num_classes=config["num_classes"],
+            pretrained=config["pretrained"],
+            class_weights=class_weights,
+            learning_rate=config["lr"],
+            weight_decay=config["weight_decay"],
+            momentum=config["momentum"],
+        )
 
     # train and validate
     trainer.fit(model, data_module)

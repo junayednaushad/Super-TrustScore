@@ -19,7 +19,7 @@ from utils import (
     get_embedding_quality,
 )
 
-plt.style.use("seaborn-v0_8")
+plt.style.use("seaborn-v0_8-colorblind")
 
 
 if __name__ == "__main__":
@@ -97,7 +97,10 @@ if __name__ == "__main__":
             if csf == "Softmax" and config["get_scores"][j]:
                 df_test[csf] = get_softmax_scores(df_test)
             elif csf == "MCDropout" and config["get_scores"][j]:
-                df_test[csf] = get_mcd_scores(df_test)
+                # df_test[csf] = get_mcd_scores(df_test)
+                mcd_preds, mcd_confs = get_mcd_scores(df_test)
+                df_test[csf] = mcd_confs
+                df_test["mcd_preds"] = mcd_preds
             elif csf == "DeepEnsemble" and config["get_scores"][j]:
                 if idx == 0:
                     if config["SD"]:
@@ -119,7 +122,12 @@ if __name__ == "__main__":
                 dfs = []
                 for df_path in df_paths:
                     dfs.append(np.load(df_path, allow_pickle=True).item()["test"])
-                df_test[csf] = get_ensemble_scores(dfs)
+                # df_test[csf] = get_ensemble_scores(dfs, df_test["model_pred"].values)
+                ensemble_preds, ensemble_confs = get_ensemble_scores(
+                    dfs, config["num_classes"] == 2
+                )
+                df_test["ensemble_preds"] = ensemble_preds
+                df_test["csf"] = ensemble_confs
             elif csf == "TrustScore" and config["get_scores"][j]:
                 df_test[csf] = get_trustscores(
                     df_train,
@@ -206,14 +214,28 @@ if __name__ == "__main__":
                 df_test["Global"] = global_confs
                 df_test[csf] = local_confs + global_confs
 
-            curve, aurc, _ = RC_curve(df_test_residuals, df_test[csf].values)
+            if csf == "DeepEnsemble":
+                ensemble_residuals = (
+                    df_test["label"] != df_test["ensemble_preds"]
+                ).values.astype(int)
+                curve, aurc, _ = RC_curve(ensemble_residuals, df_test[csf].values)
+            elif csf == "MCDropout":
+                mcd_residuals = (
+                    df_test["label"] != df_test["mcd_preds"]
+                ).values.astype(int)
+                curve, aurc, _ = RC_curve(mcd_residuals, df_test[csf].values)
+            else:
+                curve, aurc, _ = RC_curve(df_test_residuals, df_test[csf].values)
             coverages, risks = curve
             errors.append(
                 risks[np.where(np.array(coverages) <= config["coverage"])[0][0]]
             )
             csfs.append(aurc * 1000)
             if config["plot_rc"]:
-                plt.plot(coverages, risks, label=csf)
+                if csf == "Super-TrustScore":
+                    plt.plot(coverages, risks, label=csf, linestyle="dashed")
+                else:
+                    plt.plot(coverages, risks, label=csf)
 
             misclf_metrics.append(get_misclassification_results(df_test, csf))
 
