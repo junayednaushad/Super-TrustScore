@@ -140,13 +140,15 @@ Inference involves saving model predictions, softmax probabilities, and embeddin
 ```
 dataset: HAM10k
 num_classes: 7
+model: Swin
 only_test: False # set to True for shifted-distribution datasets
 
-ckpt_path: ../models/HAM10k/swin_s/model.ckpt
-save_path: ../inference_results/HAM10k/swin_s.npy
+ckpt_dir: ../models/HAM10k/swin_s
+save_paths: 
+  - ../inference_results/HAM10k/swin_s_inference.npy
 
-MCDropout: True # setting this to True if you want inference results for MCD
-num_inferences: 10 # number of forward passes
+MCDropout: True
+num_inferences: 10
 
 data_dir: ../data/HAM10k/
 return_filename: True
@@ -168,8 +170,8 @@ test_transforms: |
                 (0.11362693, 0.16195466, 0.16857147)
               )
   ])
-batch_size: 32
-num_workers: 1
+batch_size: 128
+num_workers: 7
 pin_memory: True
 ```
 
@@ -184,42 +186,39 @@ Calculate AURC and Risk@50 for different confidence scoring functions. Example c
 
 ```
 dataset: HAM10k
+num_classes: 7
 SD: False
-iid_inference_results_dir: ../inference_results/HAM10k # directory containing inference results
-iid_inference_files: # list of files containing inference results (if multiple files provided then metrics will be averaged over all files)
-  - swin_s.npy
+iid_inference_results_dir: ../inference_results/HAM10k
+iid_inference_files:
+  - swin_s_inference.npy
 
-confidence_scoring_functions: # List of CSFs to benchmark
+confidence_scoring_functions:
   - Softmax
-  - MCDropout
-  - DeepEnsemble
-  - ConfidNet
+  - MCDropout # model must have some form of dropout
+  # - DeepEnsemble # must have multiple inference results
+  # - ConfidNet # must have trained ConfidNet and gotten inference results
   - TrustScore
   - Mahalanobis
-  - Local
-  - Global
   - Super-TrustScore
 
 get_scores: # Each boolean corresponds to the CSF in the previous list (same order) 
   - True # If True calculate confidence scores, if False then inference file should already contain confidence scores to be loaded
   - True
-  - True
-  - True
-  - True
-  - True
+  # - True
+  # - True
   - True
   - True
   - True
 
 # Classification Performance
-get_classification_performance: True
+get_classification_performance: False
 clf_metrics:
   - Balanced Accuracy
   - Accuracy
 
 
 # Embedding quality
-get_clustering_metrics: True
+get_clustering_metrics: False
 clustering_reduce_dim: True
 clustering_n_components: 0.9
 clustering_norm: True
@@ -227,30 +226,36 @@ clustering_norm: True
 # TrustScore hyperparameters
 ts_reduce_dim: True
 ts_n_components: 0.9
-ts_norm: True
+ts_norm: False
 ts_filtering: none
 ts_num_workers: 4
 
 # Mahalanobis hyperparameters
-mahal_norm: True
+mahal_norm: False
 mahal_reduce_dim: True
 mahal_n_components: 0.9
+tied_covariance: False
+
+# Euclidean hyperparameters
+euc_norm: False
+euc_reduce_dim: True
+euc_n_components: 0.9
 
 # Super-TrustScore hyperparameters
-knn_reduce_dim: True
-knn_n_components: 0.9
-knn_norm: True
+sts_reduce_dim: True
+sts_n_components: 0.9
+local_distance_metric: l2
+global_norm: False
+global_tied_covariance: False
 knn_filtering: False
-local_conf: True
-global_conf: True
 min_k: 1
-max_k: 20
+max_k: 25
 k_step: 1
 N_samples: 1014
 eps: 0
 
 # plot risk coverage plot
-plot_rc: True
+plot_rc: False
 coverage: 0.5
 plot_title: HAM10k (ID)
 plot_dir: ../figures/HAM10k/
