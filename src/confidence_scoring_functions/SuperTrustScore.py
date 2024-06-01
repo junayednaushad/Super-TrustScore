@@ -11,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.getcwd()))
 from utils import RC_curve
 from confidence_scoring_functions.Mahalanobis import Mahalanobis
 
-plt.style.use("seaborn-v0_8")
+plt.style.use("seaborn-v0_8-dark")
 
 
 def get_sts_scores(
@@ -20,8 +20,9 @@ def get_sts_scores(
     df_test,
     reduce_dim,
     n_components,
+    tied_covariance,
     local_distance_metric,
-    global_distance_metric,
+    global_norm,
     filter_training,
     local_conf,
     global_conf,
@@ -35,8 +36,9 @@ def get_sts_scores(
         df_train=df_train,
         reduce_dim=reduce_dim,
         n_components=n_components,
+        tied_covariance=tied_covariance,
         local_distance_metric=local_distance_metric,
-        global_distance_metric=global_distance_metric,
+        global_norm=global_norm,
         filter_training=filter_training,
         local_conf=local_conf,
         global_conf=global_conf,
@@ -57,8 +59,9 @@ class STS:
         reduce_dim=True,
         n_components=0.9,
         local_distance_metric="l2",
-        global_distance_metric="l2",
-        filter_training=True,
+        tied_covariance=False,
+        global_norm=False,
+        filter_training=False,
         local_conf=True,
         global_conf=True,
     ):
@@ -78,8 +81,13 @@ class STS:
             If n_components > 1 then it is the number of features (with highest variability) to retain.
             If 0 < n_components < 1 then the number of features required to retain that percentage of explained
             variability will be kept
-        norm : bool
-            Determines if normalized (unit) embeddings will be used
+        local_distance_metric: String
+            Distance metric (e.g., cosine, l2) used to compute nearest neighbors for the Local confidence score
+        tied_covariance: bool
+            True if a tied covariance matrix is used to compute the Mahalanobis distances for the Global confidence score
+            False if a different covariance matrix is used for each class conditional distribution
+        global_norm: bool
+            If True, normalize embeddings prior to computing Mahalanobis distances for Global confidence score
         filter_training : bool
             Determines if outliers in training data should be removed
         local_conf : bool
@@ -93,7 +101,8 @@ class STS:
         self.reduce_dim = reduce_dim
         self.n_components = n_components
         self.local_distance_metric = local_distance_metric
-        self.global_distance_metric = global_distance_metric
+        self.tied_covariance = tied_covariance
+        self.global_norm = global_norm
         self.filter = filter_training
         self.local_conf = local_conf
         self.global_conf = global_conf
@@ -139,7 +148,7 @@ class STS:
 
         if self.global_conf:
             self.mahalanobis = Mahalanobis(
-                global_distance_metric, reduce_dim, n_components
+                global_norm, tied_covariance, reduce_dim, n_components
             )
             self.mahalanobis.fit(self.df_train)
 
@@ -169,11 +178,13 @@ class STS:
         """
         Create plot using scores for different k values
         """
-        k_values, aurcs = self.search_k_values(df_val, min_k, max_k, k_step, N_samples)
-        plt.plot(k_values, aurcs, label="AURC")
+        k_values, aurcs, _ = self.search_k_values(
+            df_val, min_k, max_k, k_step, N_samples
+        )
+        plt.plot(k_values, aurcs)
+        plt.ylabel("AURC x 10\u00b3")
         plt.xlabel("k")
         plt.title(title)
-        plt.legend()
         plt.show()
 
     def search_k_values(self, df_val, min_k, max_k, k_step, N_samples):

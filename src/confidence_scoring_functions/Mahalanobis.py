@@ -4,8 +4,10 @@ from sklearn.preprocessing import normalize
 from tqdm import tqdm
 
 
-def get_mahalanobis_scores(df_train, df_test, norm, reduce_dim, n_components=None):
-    mahalanobis = Mahalanobis(norm, reduce_dim, n_components)
+def get_mahalanobis_scores(
+    df_train, df_test, norm, tied_covariance, reduce_dim, n_components=None
+):
+    mahalanobis = Mahalanobis(norm, tied_covariance, reduce_dim, n_components)
     mahalanobis.fit(df_train)
     distances = mahalanobis.predict(df_test)
     model_preds = df_test["model_pred"].values.astype(int)
@@ -18,12 +20,30 @@ def get_mahalanobis_scores(df_train, df_test, norm, reduce_dim, n_components=Non
 
 
 class Mahalanobis:
-    def __init__(self, distance_metric, reduce_dim, n_componenets=None):
+    def __init__(self, norm, tied_covariance, reduce_dim, n_componenets=None):
+        """
+        Initialize particular version of Mahalanobis distance to use
+
+        Parameters
+        ----------
+        norm : bool
+            If True, normalize embeddings to be unit vectors.
+        tied_covariance : bool
+            If True, the class-conditioned distributions will share the same covariance matrix.
+            If False, separate covariance matrices will be used for each class.
+        reduce_dim : bool
+            If True, apply PCA to embeddings
+        n_components : int or float
+            If n_components > 1 then it is the number of features (with highest variability) to retain.
+            If 0 < n_components < 1 then the number of features required to retain that percentage of explained
+            variability will be kept
+        """
         self.reduce_dim = reduce_dim
         self.n_components = n_componenets
         if self.reduce_dim:
             self.pca = PCA(n_components=self.n_components, random_state=0)
-        self.distance_metric = distance_metric
+        self.norm = norm
+        self.tied_covariance = tied_covariance
 
     def fit(self, df_train):
         self.labels = df_train["label"].values
@@ -32,7 +52,7 @@ class Mahalanobis:
         if self.reduce_dim:
             self.pca.fit(train_embs)
             train_embs = self.pca.transform(train_embs)
-        if self.distance_metric == "cosine":
+        if self.norm:
             train_embs = normalize(train_embs, norm="l2", axis=1)
 
         self.centroids = self._get_centroids(train_embs)
@@ -42,7 +62,7 @@ class Mahalanobis:
         test_embs = np.vstack(df_test["embedding"].values)
         if self.reduce_dim:
             test_embs = self.pca.transform(test_embs)
-        if self.distance_metric == "cosine":
+        if self.norm:
             test_embs = normalize(test_embs, norm="l2", axis=1)
 
         preds = []
@@ -57,23 +77,29 @@ class Mahalanobis:
         return centroids
 
     def _get_covariances(self, embs):
-        covariances = {}
-        for label in np.sort(np.unique(self.labels)):
-            covariances[label] = np.cov(embs[self.labels == label], rowvar=False)
-            if not np.all(np.linalg.eigvals(covariances[label]) > 0):
-                covariances[label] += np.eye(covariances[label].shape[0]) * 1e-13
-                assert np.all(
-                    np.linalg.eigvals(covariances[label]) > 0
-                ), "Covariance matrix has numerical error so need to add larger positive value"
+        if self.tied_covariance:
+            return np.cov(embs, rowvar=False)
+        else:
+            covariances = {}
+            for label in np.sort(np.unique(self.labels)):
+                covariances[label] = np.cov(embs[self.labels == label], rowvar=False)
+                if not np.all(np.linalg.eigvals(covariances[label]) > 0):
+                    covariances[label] += np.eye(covariances[label].shape[0]) * 1e-13
+                    assert np.all(
+                        np.linalg.eigvals(covariances[label]) > 0
+                    ), "Covariance matrix has numerical error so need to add larger positive value"
 
-        return covariances
+            return covariances
 
     def _mahalanobis_distance(self, emb):
         emb = emb.reshape(1, -1)
         distances = []
         for label in np.sort(np.unique(self.labels)):
             centroid = self.centroids[label].reshape(1, -1)
-            cov = self.covariances[label]
+            if self.tied_covariance:
+                cov = self.covariances
+            else:
+                cov = self.covariances[label]
             distances.append(
                 np.sqrt((emb - centroid) @ np.linalg.inv(cov) @ (emb - centroid).T)
             )

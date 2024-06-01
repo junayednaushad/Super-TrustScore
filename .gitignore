@@ -7,7 +7,8 @@ shell_scripts/
 wandb/
 lightning_logs/
 slurm_outputs/
-figures.ipynb
+src/figures.ipynb
+src/fd_wrt_acc.py
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

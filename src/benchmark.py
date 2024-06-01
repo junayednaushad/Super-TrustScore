@@ -92,7 +92,7 @@ if __name__ == "__main__":
         csfs = []
         errors = []
         misclf_metrics = []
-        plt.figure(figsize=(10, 4))
+        plt.figure(figsize=(10, 5))
         for j, csf in enumerate(config["confidence_scoring_functions"]):
             if csf == "Softmax" and config["get_scores"][j]:
                 df_test[csf] = get_softmax_scores(df_test)
@@ -127,7 +127,7 @@ if __name__ == "__main__":
                     dfs, config["num_classes"] == 2
                 )
                 df_test["ensemble_preds"] = ensemble_preds
-                df_test["csf"] = ensemble_confs
+                df_test[csf] = ensemble_confs
             elif csf == "TrustScore" and config["get_scores"][j]:
                 df_test[csf] = get_trustscores(
                     df_train,
@@ -145,6 +145,7 @@ if __name__ == "__main__":
                     df_train,
                     df_test,
                     norm=config["mahal_norm"],
+                    tied_covariance=config["tied_covariance"],
                     reduce_dim=config["mahal_reduce_dim"],
                     n_components=config["mahal_n_components"],
                 )
@@ -183,7 +184,8 @@ if __name__ == "__main__":
                     df_train=df_train,
                     reduce_dim=config["sts_reduce_dim"],
                     n_components=config["sts_n_components"],
-                    global_distance_metric=config["global_distance_metric"],
+                    tied_covariance=config["global_tied_covariance"],
+                    global_norm=config["global_norm"],
                     filter_training=config["knn_filtering"],
                     local_conf=False,
                     global_conf=True,
@@ -196,7 +198,8 @@ if __name__ == "__main__":
                     reduce_dim=config["sts_reduce_dim"],
                     n_components=config["sts_n_components"],
                     local_distance_metric=config["local_distance_metric"],
-                    global_distance_metric=config["global_distance_metric"],
+                    tied_covariance=config["global_tied_covariance"],
+                    global_norm=config["global_norm"],
                     filter_training=config["knn_filtering"],
                     local_conf=True,
                     global_conf=True,
@@ -233,7 +236,9 @@ if __name__ == "__main__":
             csfs.append(aurc * 1000)
             if config["plot_rc"]:
                 if csf == "Super-TrustScore":
-                    plt.plot(coverages, risks, label=csf, linestyle="dashed")
+                    plt.plot(
+                        coverages, risks, label=csf, linestyle="dashed", linewidth=3
+                    )
                 else:
                     plt.plot(coverages, risks, label=csf)
 
@@ -251,10 +256,12 @@ if __name__ == "__main__":
             plot_path = os.path.join(config["plot_dir"], f"RC_plot_{idx}.png")
             if not os.path.exists(os.path.dirname(plot_path)):
                 os.makedirs(os.path.dirname(plot_path))
-            plt.title(config["plot_title"], fontsize=18)
-            plt.xlabel("Coverage")
-            plt.ylabel("Risk (1 - Accuracy)")
-            plt.legend()
+            plt.title(config["plot_title"], fontsize=16)
+            plt.xlabel("Coverage", fontsize=14)
+            plt.xticks(fontsize=12)
+            plt.yticks(fontsize=12)
+            plt.ylabel("Risk (1 - Accuracy)", fontsize=14)
+            plt.legend(fontsize=14)
             plt.savefig(plot_path)
             plt.close()
 

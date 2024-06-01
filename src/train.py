@@ -7,10 +7,9 @@ from lightning.pytorch.callbacks import (
     LearningRateMonitor,
 )
 from dataset import HAM10kDataModule, EyePACSDataModule
-from model import LitSwin, LitResNet
+from model import LitSwin, LitResNet, LitEfficientNet
 from utils import get_HAM10k_class_weights, get_EyePACS_class_weights
 import sys
-
 import argparse
 import yaml
 
@@ -55,6 +54,9 @@ if __name__ == "__main__":
                     min_delta=0.01,
                     patience=10,
                 ),
+                # ModelCheckpoint(
+                #     dirpath=config["model_dir"], every_n_epochs=1, save_top_k=-1
+                # ),
                 ModelCheckpoint(
                     dirpath=config["model_dir"],
                     filename="{epoch}-{val_balanced_accuracy:.2f}",
@@ -133,11 +135,23 @@ if __name__ == "__main__":
             weight_decay=config["weight_decay"],
             momentum=config["momentum"],
         )
-    else:
+    elif "resnet" in config["model"]:
         model = LitResNet(
+            variant=config["model"],
             dataset=config["dataset"],
             num_classes=config["num_classes"],
             pretrained=config["pretrained"],
+            class_weights=class_weights,
+            learning_rate=config["lr"],
+            weight_decay=config["weight_decay"],
+            momentum=config["momentum"],
+        )
+    else:
+        model = LitEfficientNet(
+            variant=config["model"],
+            dataset=config["dataset"],
+            num_classes=config["num_classes"],
+            pretrained=["pretrained"],
             class_weights=class_weights,
             learning_rate=config["lr"],
             weight_decay=config["weight_decay"],

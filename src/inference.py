@@ -14,11 +14,11 @@ from dataset import (
     MessidorDataModule,
     APTOS_2019_DataModule,
 )
-from model import LitSwin, LitResNet, get_intermediate_features
+from model import LitSwin, LitResNet, LitEfficientNet, get_intermediate_features
 
 
 def get_inference_dataframe(model, dataloader, device, config, test):
-    """Returns dataframe with |filename|label|embedding|model_pred|probs|MCDropout_probs|"""
+    """Returns inference results in dataframe with |filename|label|embedding|model_pred|probs|MCDropout_probs|"""
     filenames = []
     labels = []
     embeddings = []
@@ -119,56 +119,58 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("DEVICE: ", device)
 
-    test_scores = []
-    accs = []
-    ckpt_path = config["ckpt_path"]
-    save_path = config["save_path"]
-
-    print(f"Getting inference results for {ckpt_path}")
-    if config["model"] == "Swin":
-        finetuned_model = LitSwin.load_from_checkpoint(ckpt_path)
-        finetuned_model.model.avgpool.register_forward_hook(
-            get_intermediate_features("embedding")
-        )
-    else:
-        finetuned_model = LitResNet.load_from_checkpoint(ckpt_path)
-        finetuned_model.model.avgpool.register_forward_hook(
-            get_intermediate_features("embedding")
-        )
-    if not config["only_test"]:
-        df_train = get_inference_dataframe(
+    for ckpt, save_path in zip(os.listdir(config["ckpt_dir"]), config["save_paths"]):
+        ckpt_path = os.path.join(config["ckpt_dir"], ckpt)
+        print(f"Getting inference results for {ckpt_path}")
+        if config["model"] == "Swin":
+            finetuned_model = LitSwin.load_from_checkpoint(ckpt_path)
+            finetuned_model.model.avgpool.register_forward_hook(
+                get_intermediate_features("embedding")
+            )
+        elif "resnet" in config["model"]:
+            finetuned_model = LitResNet.load_from_checkpoint(ckpt_path)
+            finetuned_model.model.avgpool.register_forward_hook(
+                get_intermediate_features("embedding")
+            )
+        else:
+            finetuned_model = LitEfficientNet.load_from_checkpoint(ckpt_path)
+            finetuned_model.model.avgpool.register_forward_hook(
+                get_intermediate_features("embedding")
+            )
+        if not config["only_test"]:
+            df_train = get_inference_dataframe(
+                model=finetuned_model,
+                dataloader=train_dataloader,
+                device=device,
+                config=config,
+                test=False,
+            )
+            df_val = get_inference_dataframe(
+                model=finetuned_model,
+                dataloader=val_dataloader,
+                device=device,
+                config=config,
+                test=False,
+            )
+        df_test = get_inference_dataframe(
             model=finetuned_model,
-            dataloader=train_dataloader,
+            dataloader=test_dataloader,
             device=device,
             config=config,
-            test=False,
+            test=True,
         )
-        df_val = get_inference_dataframe(
-            model=finetuned_model,
-            dataloader=val_dataloader,
-            device=device,
-            config=config,
-            test=False,
-        )
-    df_test = get_inference_dataframe(
-        model=finetuned_model,
-        dataloader=test_dataloader,
-        device=device,
-        config=config,
-        test=True,
-    )
 
-    # save dataframes
-    if not os.path.exists(os.path.dirname(save_path)):
-        os.makedirs(os.path.dirname(save_path))
+        # save dataframes
+        if not os.path.exists(os.path.dirname(save_path)):
+            os.makedirs(os.path.dirname(save_path))
 
-    if not config["only_test"]:
-        np.save(
-            save_path,
-            {"train": df_train, "val": df_val, "test": df_test},
-        )
-    else:
-        np.save(
-            save_path,
-            {"test": df_test},
-        )
+        if not config["only_test"]:
+            np.save(
+                save_path,
+                {"train": df_train, "val": df_val, "test": df_test},
+            )
+        else:
+            np.save(
+                save_path,
+                {"test": df_test},
+            )
