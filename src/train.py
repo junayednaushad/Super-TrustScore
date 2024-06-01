@@ -7,10 +7,9 @@ from lightning.pytorch.callbacks import (
     LearningRateMonitor,
 )
 from dataset import HAM10kDataModule, EyePACSDataModule
-from model import LitSwin
+from model import LitSwin, LitResNet, LitEfficientNet
 from utils import get_HAM10k_class_weights, get_EyePACS_class_weights
 import sys
-
 import argparse
 import yaml
 
@@ -55,6 +54,9 @@ if __name__ == "__main__":
                     min_delta=0.01,
                     patience=10,
                 ),
+                # ModelCheckpoint(
+                #     dirpath=config["model_dir"], every_n_epochs=1, save_top_k=-1
+                # ),
                 ModelCheckpoint(
                     dirpath=config["model_dir"],
                     filename="{epoch}-{val_balanced_accuracy:.2f}",
@@ -62,9 +64,12 @@ if __name__ == "__main__":
                     mode="max",
                 ),
             ],
+            # limit_train_batches=10,
+            # limit_val_batches=5,
+            # limit_test_batches=10,
             **trainer_kwargs,
         )
-    elif config["dataset"] == "EyePACS":
+    elif config["dataset"] == "EyePACS" and config["num_classes"] > 2:
         data_module = EyePACSDataModule(config)
         class_weights = get_EyePACS_class_weights(config)
         # class_weights = torch.ones(config["num_classes"]).float()
@@ -90,20 +95,68 @@ if __name__ == "__main__":
             ],
             **trainer_kwargs,
         )
+    elif config["dataset"] == "EyePACS" and config["num_classes"] == 2:
+        data_module = EyePACSDataModule(config)
+        class_weights = get_EyePACS_class_weights(config)
+        trainer = pl.Trainer(
+            logger=logger,
+            min_epochs=1,
+            max_epochs=config["epochs"],
+            callbacks=[
+                LearningRateMonitor(),
+                EarlyStopping(
+                    monitor="val_AUROC",
+                    mode="max",
+                    min_delta=0.01,
+                    patience=5,
+                ),
+                ModelCheckpoint(
+                    dirpath=config["model_dir"],
+                    filename="{epoch}-{val_AUROC:.2f}",
+                    monitor="val_AUROC",
+                    mode="max",
+                    save_last=True,
+                ),
+            ],
+            **trainer_kwargs,
+        )
     else:
         print("Please specify a dataset that is supported (HAM10k, EyePACS)")
         sys.exit()
 
     # define model
-    model = LitSwin(
-        dataset=config["dataset"],
-        num_classes=config["num_classes"],
-        pretrained=config["pretrained"],
-        class_weights=class_weights,
-        learning_rate=config["lr"],
-        weight_decay=config["weight_decay"],
-        momentum=config["momentum"],
-    )
+    if config["model"] == "Swin":
+        model = LitSwin(
+            dataset=config["dataset"],
+            num_classes=config["num_classes"],
+            pretrained=config["pretrained"],
+            class_weights=class_weights,
+            learning_rate=config["lr"],
+            weight_decay=config["weight_decay"],
+            momentum=config["momentum"],
+        )
+    elif "resnet" in config["model"]:
+        model = LitResNet(
+            variant=config["model"],
+            dataset=config["dataset"],
+            num_classes=config["num_classes"],
+            pretrained=config["pretrained"],
+            class_weights=class_weights,
+            learning_rate=config["lr"],
+            weight_decay=config["weight_decay"],
+            momentum=config["momentum"],
+        )
+    else:
+        model = LitEfficientNet(
+            variant=config["model"],
+            dataset=config["dataset"],
+            num_classes=config["num_classes"],
+            pretrained=["pretrained"],
+            class_weights=class_weights,
+            learning_rate=config["lr"],
+            weight_decay=config["weight_decay"],
+            momentum=config["momentum"],
+        )
 
     # train and validate
     trainer.fit(model, data_module)

@@ -43,7 +43,7 @@ class HAM10kDataModule(pl.LightningDataModule):
         self.num_workers = config["num_workers"]
         self.pin_memory = config["pin_memory"]
 
-    def setup(self):
+    def setup(self, stage=None):
         print("Creating HAM10k datasets")
         train_df = pd.read_csv(os.path.join(self.data_dir, "train_df.csv"))
         df_test = pd.read_csv(os.path.join(self.data_dir, "test_df.csv"))
@@ -367,9 +367,69 @@ class MessidorDataModule(pl.LightningDataModule):
         df = pd.read_csv(os.path.join(self.data_dir, "messidor_data.csv"))
         df.dropna(inplace=True)
         print("Number of samples:", len(df))
-
+        if self.num_classes == 2:
+            df["adjudicated_dr_grade"] = (df["adjudicated_dr_grade"] > 1).astype(int)
         test_transforms = eval(self.config["test_transforms"])
         self.test_dataset = MessidorDataset(
+            df, image_dir, test_transforms, self.config["return_filename"]
+        )
+
+    def test_dataloader(self):
+        return DataLoader(
+            self.test_dataset,
+            batch_size=self.batch_size,
+            shuffle=False,
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+        )
+
+
+class APTOS_2019_Dataset(Dataset):
+    def __init__(self, df, image_dir, transform=None, return_filename=False):
+        self.df = df
+        self.image_dir = image_dir
+        self.transform = transform
+        self.return_filename = return_filename
+
+    def __getitem__(self, idx):
+        data = self.df.iloc[idx]
+        image_id = data["id_code"]
+        image_path = os.path.join(self.image_dir, image_id + ".png")
+        image = Image.open(image_path)
+
+        if self.transform:
+            image = self.transform(image)
+
+        label = data["diagnosis"]
+        if self.return_filename:
+            return image, torch.tensor(label), image_id
+        else:
+            return image, torch.tensor(label)
+
+    def __len__(self):
+        return len(self.df)
+
+
+class APTOS_2019_DataModule(pl.LightningDataModule):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.num_classes = config["num_classes"]
+        self.data_dir = config["data_dir"]
+        self.batch_size = config["batch_size"]
+        self.num_workers = config["num_workers"]
+        self.pin_memory = config["pin_memory"]
+
+    def setup(self, stage=None):
+        print("Creating APTOS 2019 datasets")
+        image_dir = os.path.join(self.data_dir, "preprocessed_train_images")
+        df = pd.read_csv(os.path.join(self.data_dir, "train.csv"))
+        if self.num_classes == 2:
+            df["diagnosis"] = (df["diagnosis"] > 1).astype(int)
+        print("Number of samples:", len(df))
+
+        test_transforms = eval(self.config["test_transforms"])
+        self.test_dataset = APTOS_2019_Dataset(
             df, image_dir, test_transforms, self.config["return_filename"]
         )
 

@@ -1,7 +1,6 @@
 import numpy as np
-from sklearn.preprocessing import normalize
 from sklearn.decomposition import PCA
-from sklearn.neighbors import KDTree
+from sklearn.neighbors import NearestNeighbors
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 import matplotlib.pyplot as plt
@@ -12,7 +11,7 @@ sys.path.insert(0, os.path.dirname(os.getcwd()))
 from utils import RC_curve
 from confidence_scoring_functions.Mahalanobis import Mahalanobis
 
-plt.style.use("seaborn-v0_8")
+plt.style.use("seaborn-v0_8-dark")
 
 
 def get_sts_scores(
@@ -21,7 +20,9 @@ def get_sts_scores(
     df_test,
     reduce_dim,
     n_components,
-    norm,
+    tied_covariance,
+    local_distance_metric,
+    global_norm,
     filter_training,
     local_conf,
     global_conf,
@@ -35,7 +36,9 @@ def get_sts_scores(
         df_train=df_train,
         reduce_dim=reduce_dim,
         n_components=n_components,
-        norm=norm,
+        tied_covariance=tied_covariance,
+        local_distance_metric=local_distance_metric,
+        global_norm=global_norm,
         filter_training=filter_training,
         local_conf=local_conf,
         global_conf=global_conf,
@@ -55,8 +58,10 @@ class STS:
         k=None,
         reduce_dim=True,
         n_components=0.9,
-        norm=True,
-        filter_training=True,
+        local_distance_metric="l2",
+        tied_covariance=False,
+        global_norm=False,
+        filter_training=False,
         local_conf=True,
         global_conf=True,
     ):
@@ -76,8 +81,13 @@ class STS:
             If n_components > 1 then it is the number of features (with highest variability) to retain.
             If 0 < n_components < 1 then the number of features required to retain that percentage of explained
             variability will be kept
-        norm : bool
-            Determines if normalized (unit) embeddings will be used
+        local_distance_metric: String
+            Distance metric (e.g., cosine, l2) used to compute nearest neighbors for the Local confidence score
+        tied_covariance: bool
+            True if a tied covariance matrix is used to compute the Mahalanobis distances for the Global confidence score
+            False if a different covariance matrix is used for each class conditional distribution
+        global_norm: bool
+            If True, normalize embeddings prior to computing Mahalanobis distances for Global confidence score
         filter_training : bool
             Determines if outliers in training data should be removed
         local_conf : bool
@@ -90,22 +100,21 @@ class STS:
         self.classes = np.sort(np.unique(self.df_train["label"].values))
         self.reduce_dim = reduce_dim
         self.n_components = n_components
-        self.norm = norm
+        self.local_distance_metric = local_distance_metric
+        self.tied_covariance = tied_covariance
+        self.global_norm = global_norm
         self.filter = filter_training
         self.local_conf = local_conf
         self.global_conf = global_conf
 
         self.train_embs = np.vstack(self.df_train["embedding"].values)
         if self.reduce_dim:
-            # print('Reducing embedding dimensions')
-            # print('Original embedding size:', self.train_embs[0].shape[0])
+            print("Reducing embedding dimensions")
+            print("Original embedding size:", self.train_embs[0].shape[0])
             self.pca = PCA(n_components=self.n_components, random_state=0)
             self.pca.fit(self.train_embs)
             self.train_embs = self.pca.transform(self.train_embs)
-            # print('Reduced embedding size:', self.train_embs[0].shape[0])
-
-        if self.norm:
-            self.train_embs = normalize(self.train_embs, norm="l2", axis=1)
+            print("Reduced embedding size:", self.train_embs[0].shape[0])
 
         if self.filter:
             print("Removing outlier training examples")
@@ -138,7 +147,9 @@ class STS:
             self.train_embs = self.train_embs[unfiltered_idxs]
 
         if self.global_conf:
-            self.mahalanobis = Mahalanobis(norm, reduce_dim, n_components)
+            self.mahalanobis = Mahalanobis(
+                global_norm, tied_covariance, reduce_dim, n_components
+            )
             self.mahalanobis.fit(self.df_train)
 
     def set_k(self, df_val, min_k, max_k, k_step, N_samples, eps):
@@ -167,11 +178,13 @@ class STS:
         """
         Create plot using scores for different k values
         """
-        k_values, aurcs = self.search_k_values(df_val, min_k, max_k, k_step, N_samples)
-        plt.plot(k_values, aurcs, label="AURC")
+        k_values, aurcs, _ = self.search_k_values(
+            df_val, min_k, max_k, k_step, N_samples
+        )
+        plt.plot(k_values, aurcs)
+        plt.ylabel("AURC x 10\u00b3")
         plt.xlabel("k")
         plt.title(title)
-        plt.legend()
         plt.show()
 
     def search_k_values(self, df_val, min_k, max_k, k_step, N_samples):
@@ -203,7 +216,7 @@ class STS:
             _, df_val = train_test_split(
                 df_val, test_size=N_samples, random_state=0, stratify=df_val["label"]
             )
-        val_preds = df_val["model_pred"].values
+        val_preds = df_val["model_pred"].values.astype(int)
         df_val_residuals = (df_val["label"] != df_val["model_pred"]).values.astype(int)
         distances, indexes = self.get_nn_dists(df_val, max_k)
 
@@ -228,15 +241,23 @@ class STS:
                     m_pred = mahal_scores[i].flatten()[pred]
                     m_other = np.delete(mahal_scores[i].flatten(), pred).min()
                     global_confs.append(m_other / m_pred)
-                    # global_confs.append(-1*m_pred)
+                    # global_confs.append(-1 * m_pred)
                     # global_confs.append(1/m_pred)
 
             if self.local_conf and self.global_conf:
                 local_confs = np.array(local_confs)
+                # local_stats = [np.min(local_confs), np.max(local_confs)]
+                # local_confs = (local_confs - local_stats[0]) / (
+                #     local_stats[1] - local_stats[0]
+                # )
                 local_stats = [np.mean(local_confs), np.std(local_confs)]
                 local_confs = (local_confs - local_stats[0]) / local_stats[1]
 
                 global_confs = np.array(global_confs)
+                # global_stats = [np.min(global_confs), np.max(global_confs)]
+                # global_confs = (global_confs - global_stats[0]) / (
+                #     global_stats[1] - global_stats[0]
+                # )
                 global_stats = [np.mean(global_confs), np.std(global_confs)]
                 global_confs = (global_confs - global_stats[0]) / global_stats[1]
 
@@ -273,16 +294,16 @@ class STS:
         test_embs = np.vstack(df_test["embedding"].values)
         if self.reduce_dim:
             test_embs = self.pca.transform(test_embs)
-        if self.norm:
-            test_embs = normalize(test_embs, norm="l2", axis=1)
 
         distances = {}
         indexes = {}
         for label in self.classes:
             df_label = self.df_train.loc[self.df_train["label"] == label]
             og_idx = df_label.index.values
-            tree_label = KDTree(self.train_embs[og_idx], leaf_size=100, metric="l2")
-            dist, new_idx = tree_label.query(test_embs, k=k)
+            nbrs = NearestNeighbors(
+                n_neighbors=k, algorithm="auto", metric=self.local_distance_metric
+            ).fit(self.train_embs[og_idx])
+            dist, new_idx = nbrs.kneighbors(test_embs)
             idx = og_idx[new_idx.flatten()]
             idx = idx.reshape(new_idx.shape)
             distances[label] = dist
@@ -305,8 +326,9 @@ class STS:
         global_confs : numpy.ndarray
             Array containing global confidence scores
         """
-        distances, indexes = self.get_nn_dists(df_test, self.k)
-        test_preds = df_test["model_pred"].values
+        if self.local_conf:
+            distances, indexes = self.get_nn_dists(df_test, self.k)
+        test_preds = df_test["model_pred"].values.astype(int)
         if self.global_conf:
             mahal_scores = self.mahalanobis.predict(df_test)
 
@@ -324,13 +346,19 @@ class STS:
                 m_pred = mahal_scores[i].flatten()[pred]
                 m_other = np.delete(mahal_scores[i].flatten(), pred).min()
                 global_confs.append(m_other / m_pred)
-                # global_confs.append(-1*m_pred)
+                # global_confs.append(-1 * m_pred)
                 # global_confs.append(1/m_pred)
 
         if self.local_conf and self.global_conf:
             local_confs = np.array(local_confs)
+            # local_confs = (local_confs - self.local_stats[0]) / (
+            #     self.local_stats[1] - self.local_stats[0]
+            # )
             local_confs = (local_confs - self.local_stats[0]) / self.local_stats[1]
             global_confs = np.array(global_confs)
+            # global_confs = (global_confs - self.global_stats[0]) / (
+            #     self.global_stats[1] - self.global_stats[0]
+            # )
             global_confs = (global_confs - self.global_stats[0]) / self.global_stats[1]
             return local_confs, global_confs
         elif self.local_conf:
