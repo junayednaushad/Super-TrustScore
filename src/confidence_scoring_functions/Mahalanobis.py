@@ -2,25 +2,27 @@ import numpy as np
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
+import argparse
+import yaml
+import os
 
 
 def get_mahalanobis_scores(
-    df_train, df_test, norm, tied_covariance, reduce_dim, n_components=None
+    df_train, df_test, norm, tied_covariance, relative, reduce_dim, n_components=None
 ):
-    mahalanobis = Mahalanobis(norm, tied_covariance, reduce_dim, n_components)
+    mahalanobis = Mahalanobis(norm, tied_covariance, relative, reduce_dim, n_components)
     mahalanobis.fit(df_train)
     distances = mahalanobis.predict(df_test)
-    model_preds = df_test["model_pred"].values.astype(int)
-    scores = []
-    for dist, pred in zip(distances, model_preds):
-        dist = dist.flatten()
-        mahal_pred = dist[pred]
-        scores.append(-1 * mahal_pred)
+    if not relative:
+        model_preds = df_test["model_pred"].values.astype(int)
+        scores = -1 * distances[np.arange(len(model_preds)), model_preds]
+    else:
+        scores = -1 * np.min(distances, axis=1)
     return scores
 
 
 class Mahalanobis:
-    def __init__(self, norm, tied_covariance, reduce_dim, n_componenets=None):
+    def __init__(self, norm, tied_covariance, relative, reduce_dim, n_componenets=None):
         """
         Initialize particular version of Mahalanobis distance to use
 
@@ -31,6 +33,9 @@ class Mahalanobis:
         tied_covariance : bool
             If True, the class-conditioned distributions will share the same covariance matrix.
             If False, separate covariance matrices will be used for each class.
+        relative : bool
+            If True, computes relative Mahalanobis distance as defined in
+            'A Simple Fix to Mahalanobis Distance for Improving Near-OOD Detection'
         reduce_dim : bool
             If True, apply PCA to embeddings
         n_components : int or float
@@ -44,6 +49,7 @@ class Mahalanobis:
             self.pca = PCA(n_components=self.n_components, random_state=0)
         self.norm = norm
         self.tied_covariance = tied_covariance
+        self.relative = relative
 
     def fit(self, df_train):
         self.labels = df_train["label"].values
@@ -58,6 +64,10 @@ class Mahalanobis:
         self.centroids = self._get_centroids(train_embs)
         self.covariances = self._get_covariances(train_embs)
 
+        if self.relative:
+            self.mean_0 = np.mean(train_embs, axis=0)
+            self.cov_0 = np.cov(train_embs, rowvar=False)
+
     def predict(self, df_test):
         test_embs = np.vstack(df_test["embedding"].values)
         if self.reduce_dim:
@@ -68,7 +78,7 @@ class Mahalanobis:
         preds = []
         for test_emb in tqdm(test_embs):
             preds.append(self._mahalanobis_distance(test_emb))
-        return preds
+        return np.vstack(preds)
 
     def _get_centroids(self, embs):
         centroids = {}
@@ -103,4 +113,69 @@ class Mahalanobis:
             distances.append(
                 np.sqrt((emb - centroid) @ np.linalg.inv(cov) @ (emb - centroid).T)
             )
-        return np.array(distances).reshape(1, -1)
+        distances = np.array(distances).reshape(1, -1)
+        if not self.relative:
+            return distances
+        else:
+            distance_0 = np.sqrt(
+                (emb - self.mean_0) @ np.linalg.inv(self.cov_0) @ (emb - self.mean_0).T
+            )
+            return distances - distance_0
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", required=True, help="Config file (YAML)")
+    args = parser.parse_args()
+    with open(args.config) as file:
+        config = yaml.safe_load(file)
+
+    iid_file_paths = [
+        os.path.join(config["iid_inference_results_dir"], f)
+        for f in config["iid_inference_files"]
+    ]
+    if config["SD"]:
+        sd_file_paths = [
+            os.path.join(config["sd_inference_results_dir"], f)
+            for f in config["sd_inference_files"]
+        ]
+    min_mahal_distances = []
+    gt_mahal_distances = []
+    accs = []
+    for idx, path in enumerate(iid_file_paths):
+        iid_df = np.load(path, allow_pickle=True).item()
+        iid_df_train = iid_df["train"]
+
+        mahalanobis = Mahalanobis(
+            config["mahal_norm"],
+            config["tied_covariance"],
+            config["relative"],
+            config["mahal_reduce_dim"],
+            config["mahal_n_components"],
+        )
+        mahalanobis.fit(iid_df_train)
+        if not config["SD"]:
+            df_test = iid_df["test"]
+        else:
+            df_test = np.load(sd_file_paths[idx], allow_pickle=True).item()["test"]
+
+        distances = np.vstack(mahalanobis.predict(df_test))
+        min_distance = np.min(distances, axis=1)
+        min_mahal_distances.append(np.mean(min_distance))
+
+        labels = df_test["label"].values
+        gt_distance = distances[np.arange(distances.shape[0]), labels]
+        gt_mahal_distances.append(np.mean(gt_distance))
+
+        accuracy = np.sum(gt_distance <= min_distance) / distances.shape[0]
+        accs.append(accuracy)
+
+    print()
+    print(config["dataset"])
+    print(
+        f"Mean Mahalanobis distance from nearest class: {np.mean(min_mahal_distances):.2f}"
+    )
+    print(
+        f"Mean Mahalanobis distance from ground truth class: {np.mean(gt_mahal_distances):.2f}"
+    )
+    print(f"Accuracy: {np.mean(accs):.2f}")

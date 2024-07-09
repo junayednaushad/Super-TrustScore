@@ -1,6 +1,6 @@
 # Super-TrustScore
 
-This repository contains the code for a paper called "Super-TrustScore: Reliable Failure Detection for Automated Skin Lesion Diagnosis" accepted at ISBI 2024. The following is the abstract:
+This repository contains the code for the paper [Super-TrustScore: Reliable Failure Detection for Automated Skin Lesion Diagnosis](https://ora.ox.ac.uk/objects/uuid:8c70db19-7ad8-42a7-bc27-884f19e31f7c/files/s05741t51n) accepted at ISBI 2024. The following is the abstract:
 
 > The successful deployment of deep neural networks in safety-critical settings, such as medical image analysis, is contingent on their ability to provide reliable uncertainty estimates. In this paper, we propose a new confidence scoring function called Super-TrustScore that improves upon the existing TrustScore method by combining a local confidence score and a global confidence score. Super-TrustScore is a post-hoc method and can be easily applied to any existing pre-trained model as there are no particular architecture or classifier training requirements. We demonstrate empirically that Super-TrustScore consistently provides the most reliable uncertainty estimates for both in-distribution and shifted-distribution failure detection on the task of skin lesion diagnosis.
 
@@ -235,6 +235,7 @@ mahal_norm: False
 mahal_reduce_dim: True
 mahal_n_components: 0.9
 tied_covariance: False
+relative: False
 
 # Euclidean hyperparameters
 euc_norm: False
@@ -255,7 +256,7 @@ N_samples: 1014
 eps: 0
 
 # plot risk coverage plot
-plot_rc: False
+plot_rc: True
 coverage: 0.5
 plot_title: HAM10k (ID)
 plot_dir: ../figures/HAM10k/

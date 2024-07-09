@@ -146,6 +146,7 @@ if __name__ == "__main__":
                     df_test,
                     norm=config["mahal_norm"],
                     tied_covariance=config["tied_covariance"],
+                    relative=config["relative"],
                     reduce_dim=config["mahal_reduce_dim"],
                     n_components=config["mahal_n_components"],
                 )
