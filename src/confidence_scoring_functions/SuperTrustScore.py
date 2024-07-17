@@ -1,5 +1,8 @@
 import numpy as np
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import normalize
 from sklearn.neighbors import NearestNeighbors
 from sklearn.model_selection import train_test_split
 from tqdm import tqdm
@@ -9,7 +12,6 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.getcwd()))
 from utils import RC_curve
-from confidence_scoring_functions.Mahalanobis import Mahalanobis
 
 plt.style.use("seaborn-v0_8-dark")
 
@@ -23,6 +25,7 @@ def get_sts_scores(
     tied_covariance,
     local_distance_metric,
     global_norm,
+    rmd,
     filter_training,
     local_conf,
     global_conf,
@@ -39,6 +42,7 @@ def get_sts_scores(
         tied_covariance=tied_covariance,
         local_distance_metric=local_distance_metric,
         global_norm=global_norm,
+        rmd=rmd,
         filter_training=filter_training,
         local_conf=local_conf,
         global_conf=global_conf,
@@ -61,6 +65,7 @@ class STS:
         local_distance_metric="l2",
         tied_covariance=False,
         global_norm=False,
+        rmd=False,
         filter_training=False,
         local_conf=True,
         global_conf=True,
@@ -88,6 +93,8 @@ class STS:
             False if a different covariance matrix is used for each class conditional distribution
         global_norm: bool
             If True, normalize embeddings prior to computing Mahalanobis distances for Global confidence score
+        rmd: bool
+            If True, compute relative Mahalanobis distance
         filter_training : bool
             Determines if outliers in training data should be removed
         local_conf : bool
@@ -103,18 +110,12 @@ class STS:
         self.local_distance_metric = local_distance_metric
         self.tied_covariance = tied_covariance
         self.global_norm = global_norm
+        self.rmd = rmd
         self.filter = filter_training
         self.local_conf = local_conf
         self.global_conf = global_conf
 
         self.train_embs = np.vstack(self.df_train["embedding"].values)
-        if self.reduce_dim:
-            print("Reducing embedding dimensions")
-            print("Original embedding size:", self.train_embs[0].shape[0])
-            self.pca = PCA(n_components=self.n_components, random_state=0)
-            self.pca.fit(self.train_embs)
-            self.train_embs = self.pca.transform(self.train_embs)
-            print("Reduced embedding size:", self.train_embs[0].shape[0])
 
         if self.filter:
             print("Removing outlier training examples")
@@ -146,11 +147,26 @@ class STS:
             self.df_train = self.df_train.iloc[unfiltered_idxs]
             self.train_embs = self.train_embs[unfiltered_idxs]
 
-        if self.global_conf:
-            self.mahalanobis = Mahalanobis(
-                global_norm, tied_covariance, reduce_dim, n_components
+        if self.reduce_dim:
+            print("Reducing embedding dimensions")
+            print("Original embedding size:", self.train_embs[0].shape[0])
+            self.pca = make_pipeline(
+                StandardScaler(), PCA(n_components=self.n_components, random_state=0)
             )
-            self.mahalanobis.fit(self.df_train)
+            self.pca.fit(self.train_embs)
+            self.train_embs = self.pca.transform(self.train_embs)
+            print("Reduced embedding size:", self.train_embs[0].shape[0])
+
+        if self.global_conf:
+            self.labels = self.df_train["label"].values
+            global_train_embs = self.train_embs.copy()
+            if self.global_norm:
+                global_train_embs = normalize(global_train_embs, norm="l2", axis=1)
+            self.centroids = self._get_centroids(global_train_embs)
+            self.covariances = self._get_covariances(global_train_embs)
+            if self.rmd:
+                self.mean_0 = np.mean(global_train_embs, axis=0)
+                self.cov_0 = np.cov(global_train_embs, rowvar=False)
 
     def set_k(self, df_val, min_k, max_k, k_step, N_samples, eps):
         """
@@ -218,14 +234,17 @@ class STS:
             )
         val_preds = df_val["model_pred"].values.astype(int)
         df_val_residuals = (df_val["label"] != df_val["model_pred"]).values.astype(int)
-        distances, indexes = self.get_nn_dists(df_val, max_k)
+        val_embs = np.vstack(df_val["embedding"].values)
+        if self.reduce_dim:
+            val_embs = self.pca.transform(val_embs)
+        distances, indexes = self.get_nn_dists(val_embs, max_k)
 
         print("Searching k values")
         k_values = np.arange(min_k, max_k + 1, k_step)
         aurcs = []
         stats = []
         if self.global_conf:
-            mahal_scores = self.mahalanobis.predict(df_val)
+            mahal_scores = self.global_predict(val_embs)
         for k in tqdm(k_values):
             local_confs = []
             global_confs = []
@@ -241,6 +260,7 @@ class STS:
                     m_pred = mahal_scores[i].flatten()[pred]
                     m_other = np.delete(mahal_scores[i].flatten(), pred).min()
                     global_confs.append(m_other / m_pred)
+                    # global_confs.append(m_other - m_pred)
                     # global_confs.append(-1 * m_pred)
                     # global_confs.append(1/m_pred)
 
@@ -273,14 +293,14 @@ class STS:
 
         return k_values, aurcs, stats
 
-    def get_nn_dists(self, df_test, k):
+    def get_nn_dists(self, test_embs, k):
         """
         Returns the nearest neighbor distances and nearest neighbor training labels
 
         Parameters
         ----------
-        df_test : pandas.DataFrame
-            DataFrame containing test data with following columns: 'embedding'
+        test_embs : numpy.ndarray
+            Test embeddings
         k : int
             Number of nearest neighbors
 
@@ -291,9 +311,6 @@ class STS:
         indexes : dict
             Dictionary containing indexes of nearest neighbors
         """
-        test_embs = np.vstack(df_test["embedding"].values)
-        if self.reduce_dim:
-            test_embs = self.pca.transform(test_embs)
 
         distances = {}
         indexes = {}
@@ -326,11 +343,16 @@ class STS:
         global_confs : numpy.ndarray
             Array containing global confidence scores
         """
-        if self.local_conf:
-            distances, indexes = self.get_nn_dists(df_test, self.k)
+
+        test_embs = np.vstack(df_test["embedding"].values)
+        if self.reduce_dim:
+            test_embs = self.pca.transform(test_embs)
         test_preds = df_test["model_pred"].values.astype(int)
+
+        if self.local_conf:
+            distances, indexes = self.get_nn_dists(test_embs, self.k)
         if self.global_conf:
-            mahal_scores = self.mahalanobis.predict(df_test)
+            mahal_scores = self.global_predict(test_embs)
 
         local_confs = []
         global_confs = []
@@ -346,6 +368,7 @@ class STS:
                 m_pred = mahal_scores[i].flatten()[pred]
                 m_other = np.delete(mahal_scores[i].flatten(), pred).min()
                 global_confs.append(m_other / m_pred)
+                # global_confs.append(m_other - m_pred)
                 # global_confs.append(-1 * m_pred)
                 # global_confs.append(1/m_pred)
 
@@ -365,3 +388,54 @@ class STS:
             return np.array(local_confs)
         else:
             return np.array(global_confs)
+
+    def global_predict(self, test_embs):
+        if self.global_norm:
+            test_embs = normalize(test_embs, norm="l2", axis=1)
+
+        preds = []
+        for test_emb in tqdm(test_embs):
+            preds.append(self._mahalanobis_distance(test_emb))
+        return np.vstack(preds)
+
+    def _get_centroids(self, embs):
+        centroids = {}
+        for label in np.sort(np.unique(self.labels)):
+            centroids[label] = np.mean(embs[self.labels == label], axis=0)
+        return centroids
+
+    def _get_covariances(self, embs):
+        if self.tied_covariance:
+            return np.cov(embs, rowvar=False)
+        else:
+            covariances = {}
+            for label in np.sort(np.unique(self.labels)):
+                covariances[label] = np.cov(embs[self.labels == label], rowvar=False)
+                if not np.all(np.linalg.eigvals(covariances[label]) > 0):
+                    covariances[label] += np.eye(covariances[label].shape[0]) * 1e-13
+                    assert np.all(
+                        np.linalg.eigvals(covariances[label]) > 0
+                    ), "Covariance matrix has numerical error so need to add larger positive value"
+
+            return covariances
+
+    def _mahalanobis_distance(self, emb):
+        emb = emb.reshape(1, -1)
+        distances = []
+        for label in np.sort(np.unique(self.labels)):
+            centroid = self.centroids[label].reshape(1, -1)
+            if self.tied_covariance:
+                cov = self.covariances
+            else:
+                cov = self.covariances[label]
+            distances.append(
+                np.sqrt((emb - centroid) @ np.linalg.inv(cov) @ (emb - centroid).T)
+            )
+        distances = np.array(distances).reshape(1, -1)
+        if not self.rmd:
+            return distances
+        else:
+            distance_0 = np.sqrt(
+                (emb - self.mean_0) @ np.linalg.inv(self.cov_0) @ (emb - self.mean_0).T
+            )
+            return distances - distance_0

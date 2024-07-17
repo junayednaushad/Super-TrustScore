@@ -2,6 +2,8 @@ import numpy as np
 from sklearn.neighbors import KDTree, KNeighborsClassifier
 from sklearn.preprocessing import normalize
 from sklearn.decomposition import PCA
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
 from tqdm import tqdm
 import multiprocessing
 
@@ -15,7 +17,9 @@ def get_trustscores(
     test_predictions = df_test["model_pred"].values.astype(int)
 
     if reduce_dim:
-        pca = PCA(n_components, random_state=0)
+        pca = make_pipeline(
+            StandardScaler(), PCA(n_components=n_components, random_state=0)
+        )
         pca.fit(train_features)
         train_features = pca.transform(train_features)
         test_features = pca.transform(test_features)

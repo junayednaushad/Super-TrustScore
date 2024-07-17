@@ -1,4 +1,6 @@
 import numpy as np
+from sklearn.preprocessing import StandardScaler
+from sklearn.pipeline import make_pipeline
 from sklearn.decomposition import PCA
 from sklearn.preprocessing import normalize
 from tqdm import tqdm
@@ -46,7 +48,9 @@ class Mahalanobis:
         self.reduce_dim = reduce_dim
         self.n_components = n_componenets
         if self.reduce_dim:
-            self.pca = PCA(n_components=self.n_components, random_state=0)
+            self.pca = make_pipeline(
+                StandardScaler(), PCA(n_components=self.n_components, random_state=0)
+            )
         self.norm = norm
         self.tied_covariance = tied_covariance
         self.relative = relative

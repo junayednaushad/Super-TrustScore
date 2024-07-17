@@ -9,6 +9,7 @@ lightning_logs/
 slurm_outputs/
 src/figures.ipynb
 src/fd_wrt_acc.py
+src/NCA.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
