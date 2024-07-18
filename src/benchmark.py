@@ -149,6 +149,7 @@ if __name__ == "__main__":
                     relative=config["relative"],
                     reduce_dim=config["mahal_reduce_dim"],
                     n_components=config["mahal_n_components"],
+                    batch_size=config["mahal_batch_size"],
                 )
             elif csf == "Euclidean" and config["get_scores"][j]:
                 df_test[csf] = get_euclidean_scores(
@@ -163,7 +164,7 @@ if __name__ == "__main__":
             elif csf == "Local" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
-                    reduce_dim=config["sts_reduce_dim"],
+                    reduce_local_dim=config["reduce_local_dim"],
                     n_components=config["sts_n_components"],
                     local_distance_metric=config["local_distance_metric"],
                     filter_training=config["knn_filtering"],
@@ -183,10 +184,11 @@ if __name__ == "__main__":
             elif csf == "Global" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
-                    reduce_dim=config["sts_reduce_dim"],
+                    reduce_global_dim=config["reduce_global_dim"],
                     n_components=config["sts_n_components"],
                     tied_covariance=config["global_tied_covariance"],
                     global_norm=config["global_norm"],
+                    global_batch_size=config["global_batch_size"],
                     rmd=config["rmd"],
                     filter_training=config["knn_filtering"],
                     local_conf=False,
@@ -197,11 +199,13 @@ if __name__ == "__main__":
             elif csf == "Super-TrustScore" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
-                    reduce_dim=config["sts_reduce_dim"],
+                    reduce_local_dim=config["reduce_local_dim"],
+                    reduce_global_dim=config["reduce_global_dim"],
                     n_components=config["sts_n_components"],
                     local_distance_metric=config["local_distance_metric"],
                     tied_covariance=config["global_tied_covariance"],
                     global_norm=config["global_norm"],
+                    global_batch_size=config["global_batch_size"],
                     rmd=config["rmd"],
                     filter_training=config["knn_filtering"],
                     local_conf=True,

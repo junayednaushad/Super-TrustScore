@@ -10,9 +10,18 @@ import os
 
 
 def get_mahalanobis_scores(
-    df_train, df_test, norm, tied_covariance, relative, reduce_dim, n_components=None
+    df_train,
+    df_test,
+    norm,
+    tied_covariance,
+    relative,
+    reduce_dim,
+    n_components=None,
+    batch_size=1,
 ):
-    mahalanobis = Mahalanobis(norm, tied_covariance, relative, reduce_dim, n_components)
+    mahalanobis = Mahalanobis(
+        norm, tied_covariance, relative, reduce_dim, n_components, batch_size
+    )
     mahalanobis.fit(df_train)
     distances = mahalanobis.predict(df_test)
     if not relative:
@@ -24,7 +33,15 @@ def get_mahalanobis_scores(
 
 
 class Mahalanobis:
-    def __init__(self, norm, tied_covariance, relative, reduce_dim, n_componenets=None):
+    def __init__(
+        self,
+        norm,
+        tied_covariance,
+        relative,
+        reduce_dim,
+        n_componenets=None,
+        batch_size=1,
+    ):
         """
         Initialize particular version of Mahalanobis distance to use
 
@@ -44,6 +61,8 @@ class Mahalanobis:
             If n_components > 1 then it is the number of features (with highest variability) to retain.
             If 0 < n_components < 1 then the number of features required to retain that percentage of explained
             variability will be kept
+        batch_size : int
+            Batch size for computing mahalnobis distance
         """
         self.reduce_dim = reduce_dim
         self.n_components = n_componenets
@@ -54,6 +73,7 @@ class Mahalanobis:
         self.norm = norm
         self.tied_covariance = tied_covariance
         self.relative = relative
+        self.batch_size = batch_size
 
     def fit(self, df_train):
         self.labels = df_train["label"].values
@@ -80,8 +100,11 @@ class Mahalanobis:
             test_embs = normalize(test_embs, norm="l2", axis=1)
 
         preds = []
-        for test_emb in tqdm(test_embs):
-            preds.append(self._mahalanobis_distance(test_emb))
+        start_idx = 0
+        end_idx = self.batch_size
+        for start_idx in tqdm(range(0, test_embs.shape[0], self.batch_size)):
+            end_idx = min(test_embs.shape[0], start_idx + self.batch_size)
+            preds.append(self._mahalanobis_distance(test_embs[start_idx:end_idx]))
         return np.vstack(preds)
 
     def _get_centroids(self, embs):
@@ -105,8 +128,7 @@ class Mahalanobis:
 
             return covariances
 
-    def _mahalanobis_distance(self, emb):
-        emb = emb.reshape(1, -1)
+    def _mahalanobis_distance(self, embs):
         distances = []
         for label in np.sort(np.unique(self.labels)):
             centroid = self.centroids[label].reshape(1, -1)
@@ -115,16 +137,24 @@ class Mahalanobis:
             else:
                 cov = self.covariances[label]
             distances.append(
-                np.sqrt((emb - centroid) @ np.linalg.inv(cov) @ (emb - centroid).T)
+                np.sqrt(
+                    (
+                        (embs - centroid) @ np.linalg.inv(cov) @ (embs - centroid).T
+                    ).diagonal()
+                )
             )
-        distances = np.array(distances).reshape(1, -1)
+        distances = np.vstack(distances).T
         if not self.relative:
             return distances
         else:
             distance_0 = np.sqrt(
-                (emb - self.mean_0) @ np.linalg.inv(self.cov_0) @ (emb - self.mean_0).T
+                (
+                    (embs - self.mean_0)
+                    @ np.linalg.inv(self.cov_0)
+                    @ (embs - self.mean_0).T
+                ).diagonal()
             )
-            return distances - distance_0
+            return distances - distance_0.reshape(-1, 1)
 
 
 if __name__ == "__main__":
@@ -156,6 +186,7 @@ if __name__ == "__main__":
             config["relative"],
             config["mahal_reduce_dim"],
             config["mahal_n_components"],
+            config["mahal_batch_size"],
         )
         mahalanobis.fit(iid_df_train)
         if not config["SD"]:
