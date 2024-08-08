@@ -168,8 +168,9 @@ class STS:
             self.pca.fit(self.train_embs)
 
         if self.local_conf:
+            self.local_train_embs = self.train_embs.copy()
             if self.reduce_local_dim:
-                self.local_train_embs = self.pca.transform(self.train_embs)
+                self.local_train_embs = self.pca.transform(self.local_train_embs)
                 print("Local embedding size:", self.local_train_embs.shape[1])
 
         if self.global_conf:

@@ -10,6 +10,7 @@ slurm_outputs/
 src/figures.ipynb
 src/fd_wrt_acc.py
 src/NCA.ipynb
+src/performance_estimation.ipynb
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

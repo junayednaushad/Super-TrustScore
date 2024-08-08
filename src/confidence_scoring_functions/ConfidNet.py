@@ -78,12 +78,19 @@ if __name__ == "__main__":
         model = LitConfidNet.load_from_checkpoint(config["ckpt"])
         data_module.setup()
 
-    # get predictions
-    test_dataloader = data_module.test_dataloader()
-    predictions = trainer.predict(model, test_dataloader)
-    predictions = torch.cat(predictions).cpu().numpy()
-
     # add predictions to inference results
     inference_results = np.load(config["inference_file"], allow_pickle=True).item()
-    inference_results["test"]["TCP_hat"] = predictions
+
+    # get predictions
+    if not config["SD"]:
+        val_dataloader = data_module.val_dataloader()
+        val_predictions = trainer.predict(model, val_dataloader)
+        val_predictions = torch.cat(val_predictions).cpu().numpy()
+        inference_results["val"]["TCP_hat"] = val_predictions
+
+    test_dataloader = data_module.test_dataloader()
+    test_predictions = trainer.predict(model, test_dataloader)
+    test_predictions = torch.cat(test_predictions).cpu().numpy()
+    inference_results["test"]["TCP_hat"] = test_predictions
+
     np.save(config["inference_file"], inference_results)

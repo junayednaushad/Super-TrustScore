@@ -119,8 +119,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("DEVICE: ", device)
 
-    for ckpt, save_path in zip(os.listdir(config["ckpt_dir"]), config["save_paths"]):
-        ckpt_path = os.path.join(config["ckpt_dir"], ckpt)
+    for ckpt_path, save_path in zip(config["ckpt_paths"], config["save_paths"]):
         print(f"Getting inference results for {ckpt_path}")
         if config["model"] == "Swin":
             finetuned_model = LitSwin.load_from_checkpoint(ckpt_path)
@@ -150,7 +149,7 @@ if __name__ == "__main__":
                 dataloader=val_dataloader,
                 device=device,
                 config=config,
-                test=False,
+                test=True,
             )
         df_test = get_inference_dataframe(
             model=finetuned_model,

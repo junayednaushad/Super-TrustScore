@@ -465,13 +465,13 @@ class ConfidNetDataModule(pl.LightningDataModule):
         self.batch_size = config["batch_size"]
         self.num_workers = config["num_workers"]
         self.pin_memory = config["pin_memory"]
-        self.train = config["train"]
+        self.SD = config["SD"]
 
     def setup(self, stage=None):
         inference_results = np.load(
             self.config["inference_file"], allow_pickle=True
         ).item()
-        if self.train:
+        if not self.SD:
             self.train_dataset = ConfidNetDataset(inference_results["train"])
             self.val_dataset = ConfidNetDataset(inference_results["val"])
         self.test_dataset = ConfidNetDataset(inference_results["test"])

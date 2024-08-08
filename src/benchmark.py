@@ -34,6 +34,10 @@ if __name__ == "__main__":
     with open(args.config) as file:
         config = yaml.safe_load(file)
 
+    assert len(config["confidence_scoring_functions"]) == len(
+        config["get_scores"]
+    ), "The list of confidence_scoring_functions must be equal to the list of get_scores"
+
     if (
         "DeepEnsemble" in config["confidence_scoring_functions"]
         and len(config["iid_inference_files"]) < 2
@@ -95,9 +99,16 @@ if __name__ == "__main__":
         plt.figure(figsize=(10, 5))
         for j, csf in enumerate(config["confidence_scoring_functions"]):
             if csf == "Softmax" and config["get_scores"][j]:
+                df_val[csf] = get_softmax_scores(
+                    df_val
+                )  # addding val scores for confidence calibration
                 df_test[csf] = get_softmax_scores(df_test)
             elif csf == "MCDropout" and config["get_scores"][j]:
                 # df_test[csf] = get_mcd_scores(df_test)
+                mcd_preds, mcd_confs = get_mcd_scores(df_val)
+                df_val[csf] = mcd_confs
+                df_val["mcd_preds"] = mcd_preds
+
                 mcd_preds, mcd_confs = get_mcd_scores(df_test)
                 df_test[csf] = mcd_confs
                 df_test["mcd_preds"] = mcd_preds
@@ -119,15 +130,26 @@ if __name__ == "__main__":
                         iid_result_paths[i]
                         for i in np.delete(np.arange(len(iid_result_paths)), idx_remove)
                     ]
-                dfs = []
+                dfs_val = []
+                dfs_test = []
                 for df_path in df_paths:
-                    dfs.append(np.load(df_path, allow_pickle=True).item()["test"])
+                    dfs = np.load(df_path, allow_pickle=True).item()
+                    if not config["SD"]:
+                        dfs_val.append(dfs["val"])
+                    dfs_test.append(dfs["test"])
                 # df_test[csf] = get_ensemble_scores(dfs, df_test["model_pred"].values)
-                ensemble_preds, ensemble_confs = get_ensemble_scores(
-                    dfs, config["num_classes"] == 2
+                if not config["SD"]:
+                    ensemble_preds_val, ensemble_confs_val = get_ensemble_scores(
+                        dfs_val, config["num_classes"] == 2
+                    )
+                    df_val["ensemble_preds"] = ensemble_preds_val
+                    df_val[csf] = ensemble_confs_val
+
+                ensemble_preds_test, ensemble_confs_test = get_ensemble_scores(
+                    dfs_test, config["num_classes"] == 2
                 )
-                df_test["ensemble_preds"] = ensemble_preds
-                df_test[csf] = ensemble_confs
+                df_test["ensemble_preds"] = ensemble_preds_test
+                df_test[csf] = ensemble_confs_test
             elif csf == "TrustScore" and config["get_scores"][j]:
                 df_test[csf] = get_trustscores(
                     df_train,
@@ -160,8 +182,9 @@ if __name__ == "__main__":
                     n_components=config["euc_n_components"],
                 )
             elif csf == "ConfidNet" and config["get_scores"][j]:
+                df_val[csf] = df_val["TCP_hat"]
                 df_test[csf] = df_test["TCP_hat"]
-            elif csf == "Local" and config["get_scores"][j]:
+            elif (csf == "Local" or csf == "Local+Softmax") and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
                     reduce_local_dim=config["reduce_local_dim"],
@@ -179,8 +202,14 @@ if __name__ == "__main__":
                     config["N_samples"],
                     config["eps"],
                 )
-                local_confs = sts.compute_conf(df_test)
-                df_test[csf] = local_confs
+                local_confs_val = sts.compute_conf(df_val)
+                local_confs_test = sts.compute_conf(df_test)
+                if csf == "Local+Softmax":
+                    df_val[csf] = local_confs_val + get_softmax_scores(df_val)
+                    df_test[csf] = local_confs_test + get_softmax_scores(df_test)
+                else:
+                    df_val[csf] = local_confs_val
+                    df_test[csf] = local_confs_test
             elif csf == "Global" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
@@ -194,8 +223,10 @@ if __name__ == "__main__":
                     local_conf=False,
                     global_conf=True,
                 )
-                global_confs = sts.compute_conf(df_test)
-                df_test[csf] = global_confs
+                global_confs_val = sts.compute_conf(df_val)
+                global_confs_test = sts.compute_conf(df_test)
+                df_val[csf] = global_confs_val
+                df_test[csf] = global_confs_test
             elif csf == "Super-TrustScore" and config["get_scores"][j]:
                 sts = STS(
                     df_train=df_train,
@@ -219,10 +250,10 @@ if __name__ == "__main__":
                     config["N_samples"],
                     config["eps"],
                 )
-                local_confs, global_confs = sts.compute_conf(df_test)
-                df_test["Local"] = local_confs
-                df_test["Global"] = global_confs
-                df_test[csf] = local_confs + global_confs
+                local_confs_val, global_confs_val = sts.compute_conf(df_val)
+                local_confs_test, global_confs_test = sts.compute_conf(df_test)
+                df_val[csf] = local_confs_val + global_confs_val
+                df_test[csf] = local_confs_test + global_confs_test
 
             if csf == "DeepEnsemble":
                 ensemble_residuals = (
